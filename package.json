@@ -1,0 +1,33 @@
+{
+  "name": "wuxia-cthulhu-rpg",
+  "version": "2.0.0",
+  "description": "武俠江湖×克蘇魯×SCP 文字冒險RPG — 10地點 8NPC 9結局 完整戰鬥/任務系統",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --experimental-vm-modules tests/api.test.mjs",
+    "test:watch": "node --watch --experimental-vm-modules tests/api.test.mjs",
+    "health": "node scripts/health-check.mjs",
+    "debug": "node scripts/debug-report.mjs",
+    "lint": "node --check server.js public/game.js",
+    "clean": "node scripts/clean-saves.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "bcrypt": "^6.0.0",
+    "compression": "^1.8.1",
+    "dotenv": "^16.4.0",
+    "express": "^4.21.0",
+    "jsonwebtoken": "^9.0.3",
+    "openai": "^6.33.0",
+    "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "node-fetch": "^3.3.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

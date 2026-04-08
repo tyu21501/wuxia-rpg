@@ -1,0 +1,79 @@
+# ════════════════════════════════════════════════════════════════
+# 玄冥江湖 · Node.js + Godot Git 忽略清單
+# ════════════════════════════════════════════════════════════════
+
+# ── 環境與依賴 ──────────────────────────────────────────────────
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+.npmrc
+
+# ── 環境變數（敏感資訊）───────────────────────────────────────
+.env
+.env.local
+.env.*.local
+.env.production
+
+# ── 遊戲狀態（勿提交至版控）────────────────────────────────────
+data/world-state.json
+data/world-state.*.json
+data/world-state.json.tmp
+data/saves/
+data/users/
+data/logs/
+data/analytics.json
+data/feedback.json
+# leaderboard.json 保留作初始化範本（Vercel 用 KV 儲存）
+
+# ── 運行產物 ────────────────────────────────────────────────────
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ── IDE 與編輯器 ────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+
+# ── 建構與編譯產物 ──────────────────────────────────────────────
+.next/
+.nuxt/
+dist/
+build/
+*.tsbuildinfo
+
+# ── Godot 專屬 ──────────────────────────────────────────────────
+.godot/
+**/addons/**/.*
+user_data/
+*.import
+
+# ── 測試覆蓋 ────────────────────────────────────────────────────
+coverage/
+.nyc_output/
+
+# ── 臨時檔案 ────────────────────────────────────────────────────
+*.tmp
+*.bak
+*.backup
+temp/
+tmp/
+
+# ── Vercel 部署 ────────────────────────────────────────────────
+.vercel/
+.vercel_build_output/
+out/
+
+# ── 開發工具 ────────────────────────────────────────────────────
+.eslintcache
+.stylelintcache

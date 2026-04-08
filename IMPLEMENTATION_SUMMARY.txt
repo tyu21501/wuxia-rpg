@@ -1,0 +1,139 @@
+玄冥江湖 · 帳號系統與排行榜實裝總結
+======================================
+
+✅ 任務一：玩家帳號系統
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. 導入新依賴
+   ✓ import jwt from 'jsonwebtoken'
+   ✓ import bcrypt from 'bcrypt'
+   ✓ import { v4 as uuidv4 } from 'uuid'
+   ✓ 新增 readdirSync 導入
+
+2. 目錄與常數設定
+   ✓ USERS_DIR = /data/users/
+   ✓ LEADERBOARD_FILE = /data/leaderboard.json
+   ✓ JWT_SECRET （環境變數或預設值）
+   ✓ JWT_EXPIRY = '7d'
+   ✓ 啟動時自動初始化目錄與排行榜檔案
+
+3. 帳號輔助函式
+   ✓ authenticateToken(req, res, next) — JWT 中間件
+   ✓ loadUser(userId) — 讀取用戶檔案
+   ✓ saveUser(user) — 保存用戶檔案
+   ✓ initLeaderboard() — 初始化排行榜
+   ✓ loadLeaderboard() — 讀取排行榜
+   ✓ saveLeaderboard(lb) — 保存排行榜
+
+4. 認證 API 端點（5 個）
+   ✓ POST /api/auth/register
+     - 驗證：用戶名 3-20 字元，密碼最少 6 字元
+     - 密碼：bcrypt 加密（rounds: 10）
+     - 回傳：JWT token + 用戶信息
+
+   ✓ POST /api/auth/login
+     - 驗證用戶名與密碼
+     - bcrypt 比對密碼
+     - 回傳：JWT token + 用戶信息
+
+   ✓ GET /api/auth/me （需要 JWT）
+     - 驗證令牌有效性
+     - 回傳：用戶信息與創建時間
+
+   ✓ POST /api/auth/save-cloud/:slot （需要 JWT）
+     - 將當前遊戲狀態存至用戶雲端（3 個槽位）
+     - 自動記錄存檔名稱、時間、天數
+
+   ✓ POST /api/auth/load-cloud/:slot （需要 JWT）
+     - 從雲端讀取存檔
+     - 恢復到主遊戲狀態
+
+5. 用戶資料結構
+   {
+     "id": "uuid",
+     "username": "玩家名",
+     "passwordHash": "bcrypt hash",
+     "email": "user@example.com",
+     "createdAt": "ISO 時間戳",
+     "saves": [slot1, slot2, slot3]
+   }
+
+✅ 任務二：全球排行榜系統
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. 排行榜資料結構
+   {
+     "entries": [
+       {
+         "username": "玩家名",
+         "score": 1350,
+         "ending_id": "ending_id",
+         "days": 25,
+         "achievements": 8,
+         "timestamp": "ISO 時間戳"
+       }
+     ]
+   }
+
+2. 分數公式
+   score = (成就數 × 100) + (任務數 × 50) + (天數 × 10) - (異常擴散 × 2)
+
+3. 排行榜 API 端點（2 個）
+   ✓ POST /api/leaderboard/submit
+     - 可選 JWT（無帳號則為訪客）
+     - 自動計算分數
+     - 排行榜維持前 100 名
+     - 回傳：分數與排名
+
+   ✓ GET /api/leaderboard
+     - 回傳排行榜前 20 名
+     - 包含總條目數
+     - 自動按分數降序排列
+
+✅ 向下相容性
+━━━━━━━━━━━━━━━━━
+
+✓ 現有 /api/save 和 /api/load 仍可使用（本地存檔）
+✓ 無帳號玩家可直接遊玩（不影響現有流程）
+✓ 排行榜接受訪客提交（無帳號時用 (訪客) 名稱）
+✓ 所有新功能為可選，遊戲核心不受影響
+
+✅ 代碼品質檢查
+━━━━━━━━━━━━━━━━━
+
+✓ node --check server.js 語法驗證通過
+✓ 所有依賴已在 package.json 中定義
+  - bcrypt@6.0.0
+  - jsonwebtoken@9.0.3
+  - uuid@13.0.0
+
+✓ 代碼風格
+  - 遵循現有命名規範
+  - 適當的錯誤處理
+  - 安全的密碼處理
+  - 原子性的檔案寫入
+
+✅ 實裝規模
+━━━━━━━━━━━━━━━━━
+
+- 原始檔案：1361 行
+- 新增代碼：223 行
+- 最終檔案：1584 行
+- API 端點增長：22 → 27 個（+5 認證, +2 排行榜）
+
+✅ 部署準備
+━━━━━━━━━━━━━━━━━
+
+- [ ] 設定環境變數 JWT_SECRET（生產環境）
+- [ ] 驗證 /data/users/ 目錄可寫入
+- [ ] 運行測試：npm test
+- [ ] 運行認證測試：node test-auth.mjs
+- [ ] 檢查依賴安裝：npm list
+
+✅ 文檔
+━━━━━━━━━━━━━━━━━
+
+✓ AUTH_SYSTEM_DOCS.md — 完整 API 文檔
+✓ test-auth.mjs — 測試套件
+✓ IMPLEMENTATION_SUMMARY.txt — 本文件
+

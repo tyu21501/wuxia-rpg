@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>玄冥江湖 · 武俠克蘇魯SCP</title>
+  <!-- 字型預連線（效能優化） -->
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <!-- Ma Shan Zheng（標題書法體）+ Noto Serif TC（正文） -->
+  <link href="https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=Noto+Serif+TC:wght@300;400;500;700;900&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="style.css"/>
+  <!-- Animate.css for smooth animations -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
+  <!-- Howler.js for audio -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/howler/2.2.4/howler.min.js"></script>
+</head>
+<body>
+
+<!-- ══ 無障礙：跳過導航鍵盤捷徑（UI/UX Pro Max P1）══ -->
+<a class="skip-to-main" href="#game-main">跳至遊戲主區域</a>
+
+<!-- ══ 開始畫面 ══ -->
+<div id="title-screen">
+  <!-- 語言切換器 -->
+  <div class="lang-switcher" id="lang-switcher">
+    <button class="lang-btn" onclick="loadI18n('zh-TW')" title="繁體中文" data-lang="zh-TW">繁</button>
+    <button class="lang-btn" onclick="loadI18n('zh-CN')" title="简体中文" data-lang="zh-CN">简</button>
+    <button class="lang-btn" onclick="loadI18n('en')" title="English" data-lang="en">EN</button>
+  </div>
+
+  <div class="title-bg-particles" id="title-particles"></div>
+  <div class="title-content animate__animated animate__fadeIn">
+    <div class="title-decoration">⊰ ✦ ⊱</div>
+    <h1 class="game-title" data-i18n="game_title">玄冥江湖</h1>
+    <p class="game-subtitle" data-i18n="game_subtitle">武俠 · 克蘇魯 · 收容</p>
+    <div class="title-divider"></div>
+    <p class="title-desc">
+      架空亂世，異常初現。<br/>
+      無名歸人走出玄冥關，無人記得他曾存在。<br/>
+      你，將如何面對這場降臨？
+    </p>
+    <div class="title-buttons">
+      <button class="btn-primary" id="btn-new-game" data-i18n="btn_new_game">踏入江湖</button>
+      <button class="btn-secondary" id="btn-load-game" data-i18n="btn_load_game">讀取存檔</button>
+    </div>
+    <div class="title-version">v2.0 · 10個地點 · 8位角色 · 9種結局</div>
+
+    <!-- 帳號區塊 -->
+    <div class="account-section" id="account-section">
+      <div id="account-logged-out" class="account-panel">
+        <button class="btn-account" id="btn-login-open">登入帳號</button>
+        <button class="btn-account btn-account-secondary" id="btn-register-open">免費註冊</button>
+        <p class="account-hint">登入後可使用雲端存檔與排行榜</p>
+      </div>
+      <div id="account-logged-in" class="account-panel hidden">
+        <span class="account-username" id="account-username-display">⚔ 旅人</span>
+        <button class="btn-account btn-account-small" id="btn-cloud-save">☁ 雲端存檔</button>
+        <button class="btn-account btn-account-small btn-account-danger" id="btn-logout">登出</button>
+      </div>
+    </div>
+
+    <!-- 登入 Modal -->
+    <div id="login-modal" class="modal-overlay hidden">
+      <div class="modal-box">
+        <h2 class="modal-title">登入帳號</h2>
+        <input type="text" id="login-username" class="modal-input" placeholder="帳號名稱" />
+        <input type="password" id="login-password" class="modal-input" placeholder="密碼" />
+        <p id="login-error" class="modal-error hidden"></p>
+        <div class="modal-actions">
+          <button id="btn-login-submit" class="btn-primary">登入</button>
+          <button id="btn-login-cancel" class="btn-secondary">取消</button>
+        </div>
+        <p class="modal-switch">還沒有帳號？<a href="#" id="switch-to-register">立即註冊</a></p>
+      </div>
+    </div>
+
+    <!-- 註冊 Modal -->
+    <div id="register-modal" class="modal-overlay hidden">
+      <div class="modal-box">
+        <h2 class="modal-title">建立帳號</h2>
+        <input type="text" id="reg-username" class="modal-input" placeholder="帳號名稱（3-20字）" />
+        <input type="password" id="reg-password" class="modal-input" placeholder="密碼（6字以上）" />
+        <input type="email" id="reg-email" class="modal-input" placeholder="電子郵件（選填）" />
+        <p id="reg-error" class="modal-error hidden"></p>
+        <div class="modal-actions">
+          <button id="btn-register-submit" class="btn-primary">建立帳號</button>
+          <button id="btn-register-cancel" class="btn-secondary">取消</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ 角色創建畫面 ══ -->
+<div id="char-screen" class="hidden">
+  <div class="char-content animate__animated animate__fadeIn">
+    <div class="char-header">
+      <div class="title-decoration">⊰ ✦ ⊱</div>
+      <h2 class="char-title">立身江湖</h2>
+      <p class="char-subtitle">在踏入這片江湖之前，先確定自己是誰</p>
+    </div>
+
+    <div class="char-form">
+      <!-- 姓名 -->
+      <div class="char-section">
+        <div class="char-label" data-i18n="char_name_label">主角之名</div>
+        <input type="text" id="char-name" class="char-input" data-i18n="char_name_placeholder" placeholder="輸入你的名字……" maxlength="12"/>
+      </div>
+
+      <!-- 出身背景 -->
+      <div class="char-section">
+        <div class="char-label" data-i18n="char_background">出身背景</div>
+        <div class="char-options" id="bg-options">
+          <div class="char-opt" data-group="background" data-val="江湖浪人">
+            <div class="opt-name">江湖浪人</div>
+            <div class="opt-desc">流浪各地，無門無派，憑本能與直覺生存</div>
+            <div class="opt-bonus">初始：木材 +10，江湖聲望 +5</div>
+          </div>
+          <div class="char-opt" data-group="background" data-val="朝廷欽差">
+            <div class="opt-name">朝廷欽差</div>
+            <div class="opt-desc">奉旨調查玄冥關事件，背後有組織支撐</div>
+            <div class="opt-bonus">初始：鐵料 +10，收容聲望 +5</div>
+          </div>
+          <div class="char-opt" data-group="background" data-val="邪教叛徒">
+            <div class="opt-name">邪教叛徒</div>
+            <div class="opt-desc">曾是異常崇拜組織成員，知道他們的秘密</div>
+            <div class="opt-bonus">初始：虛空碎片 +3，異常聲望 +5</div>
+          </div>
+          <div class="char-opt" data-group="background" data-val="隱士遺孤">
+            <div class="opt-name">隱士遺孤</div>
+            <div class="opt-desc">父母因異常事件消失，孤身尋找真相</div>
+            <div class="opt-bonus">初始：理智上限 +10，聲望均 +3</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 武學流派 -->
+      <div class="char-section">
+        <div class="char-label" data-i18n="char_martial">武學流派</div>
+        <div class="char-options" id="martial-options">
+          <div class="char-opt" data-group="martial_style" data-val="剛猛">
+            <div class="opt-name">剛猛</div>
+            <div class="opt-desc">力大無窮，正面硬撼，以力破巧</div>
+            <div class="opt-bonus">攻擊力 +5</div>
+          </div>
+          <div class="char-opt" data-group="martial_style" data-val="輕靈">
+            <div class="opt-name">輕靈</div>
+            <div class="opt-desc">身法矯健，閃避為主，以巧制勝</div>
+            <div class="opt-bonus">攻擊 +2 防禦 +3</div>
+          </div>
+          <div class="char-opt" data-group="martial_style" data-val="陰詭">
+            <div class="opt-name">陰詭</div>
+            <div class="opt-desc">詭詐多端，善用毒計，對異常有一定抵抗</div>
+            <div class="opt-bonus">攻擊 +3 防禦 +2 異常抗性 +5</div>
+          </div>
+          <div class="char-opt" data-group="martial_style" data-val="醫毒">
+            <div class="opt-name">醫毒</div>
+            <div class="opt-desc">精通醫術與毒術，能治能殺，長於戰後恢復</div>
+            <div class="opt-bonus">攻擊 +1 防禦 +2 戰後回復理智</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 性格根骨 -->
+      <div class="char-section">
+        <div class="char-label" data-i18n="char_personality">性格根骨</div>
+        <div class="char-options" id="personality-options">
+          <div class="char-opt" data-group="personality" data-val="俠義">
+            <div class="opt-name">俠義</div>
+            <div class="opt-desc">路見不平，挺身而出，以救人為念</div>
+            <div class="opt-bonus">初始江湖聲望 +10</div>
+          </div>
+          <div class="char-opt" data-group="personality" data-val="自保">
+            <div class="opt-name">自保</div>
+            <div class="opt-desc">明哲保身，謹慎行事，保護自己優先</div>
+            <div class="opt-bonus">初始理智 +10</div>
+          </div>
+          <div class="char-opt" data-group="personality" data-val="求知">
+            <div class="opt-name">求知</div>
+            <div class="opt-desc">追求真相，探索未知，無懼危險</div>
+            <div class="opt-bonus">初始收容聲望 +10</div>
+          </div>
+          <div class="char-opt" data-group="personality" data-val="復仇">
+            <div class="opt-name">復仇</div>
+            <div class="opt-desc">心懷怒火，以復仇為動力，不達目的不罷休</div>
+            <div class="opt-bonus">初始江湖聲望 +5，攻擊力+2</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 角色預覽 & 確認 -->
+      <div class="char-preview" id="char-preview">
+        <div class="preview-placeholder">請選擇以上選項查看角色預覽</div>
+      </div>
+
+      <div class="char-actions">
+        <button class="btn-secondary" id="btn-char-back" data-i18n="char_back">← 返回</button>
+        <button class="btn-primary" id="btn-char-confirm" disabled data-i18n="char_confirm">踏入江湖 →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ 遊戲主介面 ══ -->
+<div id="game-screen" class="hidden">
+  <div class="game-layout">
+
+    <!-- 左側狀態欄 -->
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">身份</div>
+        <div id="identity-display" class="identity-badge identity-none">旅人</div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-title">理智 <span id="sanity-text" class="stat-text">100/100</span></div>
+        <div class="stat-bar"><div id="sanity-bar" class="stat-fill sanity-fill" style="width:100%"></div></div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-title">鎮子穩定 <span id="stability-text" class="stat-text">100%</span></div>
+        <div class="stat-bar"><div id="stability-bar" class="stat-fill stability-fill" style="width:100%"></div></div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-title">異常擴散 <span id="anomaly-text" class="stat-text">5%</span></div>
+        <div class="stat-bar"><div id="anomaly-bar" class="stat-fill anomaly-fill" style="width:5%"></div></div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-title">聲望</div>
+        <div class="rep-grid">
+          <div class="rep-item jianghu-rep"><span class="rep-label">江湖</span><span id="rep-jianghu" class="rep-value">0</span></div>
+          <div class="rep-item contain-rep"><span class="rep-label">收容</span><span id="rep-containment" class="rep-value">0</span></div>
+          <div class="rep-item anomaly-rep"><span class="rep-label">異常</span><span id="rep-anomaly" class="rep-value">0</span></div>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-title">時間 ／ 地點</div>
+        <div id="time-display" class="time-display">第1天 · 傍晚</div>
+        <div id="location-display" class="location-display">青石鎮</div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-title">戰鬥 <span id="level-text" class="stat-text-small">Lv.1</span></div>
+        <div class="combat-stats">
+          <span class="combat-stat">⚔ <span id="combat-power">10</span></span>
+          <span class="combat-stat">🛡 <span id="combat-defense">5</span></span>
+          <span class="combat-stat">✦ <span id="combat-xp">0</span>xp</span>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-title">資源</div>
+        <div class="res-grid">
+          <div class="res-item"><span class="res-label">石料</span><span id="res-stone" class="res-value">10</span></div>
+          <div class="res-item"><span class="res-label">木材</span><span id="res-wood" class="res-value">20</span></div>
+          <div class="res-item"><span class="res-label">鐵料</span><span id="res-iron" class="res-value">0</span></div>
+          <div class="res-item"><span class="res-label">虛空</span><span id="res-void" class="res-value">0</span></div>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-title">技能</div>
+        <div id="skills-list" class="tag-list">（無）</div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-title">持有</div>
+        <div id="items-list" class="tag-list">（無）</div>
+      </div>
+
+      <div class="sidebar-actions">
+        <button class="btn-small" id="btn-save" data-i18n="btn_save">存檔</button>
+        <button class="btn-small" id="btn-load" data-i18n="btn_load">讀檔</button>
+        <button class="btn-small" id="btn-achievements" data-i18n="btn_achievements">成就</button>
+        <button class="btn-small btn-danger" id="btn-menu" data-i18n="btn_menu">主選單</button>
+      </div>
+    </aside>
+
+    <!-- 右側主區域 -->
+    <main class="main-area" id="game-main" tabindex="-1">
+      <!-- 分頁標籤 -->
+      <div class="tab-bar">
+        <button class="tab-btn active" data-panel="story" data-i18n="tab_story">敘事</button>
+        <button class="tab-btn" data-panel="map" data-i18n="tab_map">地圖</button>
+        <button class="tab-btn" data-panel="npc" data-i18n="tab_npc">人物</button>
+        <button class="tab-btn" data-panel="quests" data-i18n="tab_quest">任務</button>
+        <button class="tab-btn" data-panel="build" data-i18n="tab_build">建設</button>
+        <button class="tab-btn" data-panel="clues" data-i18n="tab_clues">線索日誌</button>
+        <button class="tab-btn" data-panel="log" data-i18n="tab_anomaly">異常記錄</button>
+      </div>
+
+      <!-- 敘事面板 -->
+      <div id="panel-story" class="panel">
+        <div id="story-output" class="story-output"></div>
+
+        <!-- 快速行動列 -->
+        <div class="quick-actions" id="quick-actions"></div>
+
+        <div class="input-area">
+          <div class="input-wrap">
+            <textarea id="action-input" class="action-input" data-i18n="action_placeholder" placeholder="輸入你的行動，或點擊上方快速選項……" rows="2"></textarea>
+            <button id="btn-send" class="btn-send" data-i18n="btn_send">行動</button>
+          </div>
+          <div id="loading-indicator" class="loading hidden">
+            <span class="loading-dots" data-i18n="loading_text">敘事引擎運作中</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 地圖面板 -->
+      <div id="panel-map" class="panel hidden">
+        <div class="panel-scroll">
+          <div class="panel-header">江湖地圖 <span class="panel-hint">（點擊「前往此地」即可移動）</span></div>
+          <div id="map-container" class="map-container"></div>
+        </div>
+      </div>
+
+      <!-- NPC 人物面板 -->
+      <div id="panel-npc" class="panel hidden">
+        <div class="panel-scroll">
+          <div class="panel-header">在場人物</div>
+          <div id="npc-container" class="npc-container"></div>
+        </div>
+      </div>
+
+      <!-- 任務面板 -->
+      <div id="panel-quests" class="panel hidden">
+        <div class="panel-scroll">
+          <div class="panel-header">任務面板</div>
+          <div id="quests-container" class="quests-container"></div>
+        </div>
+      </div>
+
+      <!-- 建設面板 -->
+      <div id="panel-build" class="panel hidden">
+        <div class="panel-scroll">
+          <div class="panel-header">據點建設</div>
+          <div id="build-container" class="build-container"></div>
+        </div>
+      </div>
+
+      <!-- 線索日誌面板 -->
+      <div id="panel-clues" class="panel hidden">
+        <div class="panel-scroll">
+          <div class="panel-header">線索日誌</div>
+          <div id="clues-container" class="log-container"></div>
+        </div>
+      </div>
+
+      <!-- 異常記錄面板 -->
+      <div id="panel-log" class="panel hidden">
+        <div class="panel-scroll">
+          <div class="panel-header">異常檔案室</div>
+          <div id="log-container" class="log-container"></div>
+        </div>
+      </div>
+    </main>
+
+    <!-- 回饋按鈕（懸浮） -->
+    <button id="btn-feedback" class="feedback-fab" title="回報問題 / 提供建議" onclick="toggleFeedbackPanel()">💬</button>
+    <div id="feedback-panel" class="feedback-panel hidden">
+      <h3 class="feedback-title">回饋 · Alpha 測試</h3>
+      <div class="feedback-types">
+        <button class="feedback-type-btn active" data-type="bug" onclick="setFeedbackType('bug')">🐛 Bug</button>
+        <button class="feedback-type-btn" data-type="suggestion" onclick="setFeedbackType('suggestion')">💡 建議</button>
+        <button class="feedback-type-btn" data-type="general" onclick="setFeedbackType('general')">💬 其他</button>
+      </div>
+      <textarea id="feedback-text" placeholder="描述你遇到的問題或建議…" rows="4"></textarea>
+      <input id="feedback-contact" type="text" placeholder="聯絡方式（選填）" />
+      <div class="feedback-actions">
+        <button onclick="sendFeedback()" class="btn-primary">送出</button>
+        <button onclick="toggleFeedbackPanel()" class="btn-secondary">取消</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ 存讀檔彈窗 ══ -->
+<div id="save-modal" class="modal hidden">
+  <div class="modal-box">
+    <div class="modal-title" id="modal-title">存檔</div>
+    <div id="save-slots" class="save-slots"></div>
+    <button class="btn-secondary" id="btn-close-modal">取消</button>
+  </div>
+</div>
+
+<!-- ══ 戰鬥彈窗 ══ -->
+<div id="combat-modal" class="modal hidden">
+  <div class="modal-box combat-box">
+    <div class="combat-header">
+      <div class="combat-title">⚔ 遭遇戰鬥</div>
+      <div id="combat-enemy-name" class="combat-enemy-name">未知敵人</div>
+    </div>
+    <div class="combat-bars">
+      <div class="combat-bar-section">
+        <div class="combat-bar-label">敵方：<span id="enemy-hp-text">?/?</span></div>
+        <div class="stat-bar"><div id="enemy-hp-bar" class="stat-fill enemy-fill" style="width:100%"></div></div>
+      </div>
+      <div class="combat-bar-section">
+        <div class="combat-bar-label">你的理智：<span id="player-sanity-text">?/?</span></div>
+        <div class="stat-bar"><div id="player-combat-sanity-bar" class="stat-fill sanity-fill" style="width:100%"></div></div>
+      </div>
+    </div>
+    <div id="combat-log" class="combat-log"></div>
+    <div class="combat-actions">
+      <button class="btn-combat" id="btn-attack" data-i18n="combat_attack">⚔ 攻擊</button>
+      <button class="btn-combat" id="btn-defend" data-i18n="combat_defend">🛡 防禦</button>
+      <button class="btn-combat" id="btn-use-item" data-i18n="combat_use_item">💊 使用物品</button>
+      <button class="btn-combat btn-flee" id="btn-flee" data-i18n="combat_flee">🏃 逃跑</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ 成就彈窗 ══ -->
+<div id="achievement-modal" class="modal hidden">
+  <div class="modal-box">
+    <div class="modal-title" data-i18n="achievement_title">成就記錄</div>
+    <div id="achievement-list" class="achievement-list"></div>
+    <button class="btn-secondary" id="btn-close-achievement">關閉</button>
+  </div>
+</div>
+
+<!-- ══ 成就通知 ══ -->
+<div id="achievement-toast" class="achievement-toast hidden"></div>
+
+<script src="game.js"></script>
+</body>
+</html>
