@@ -1,14 +1,14 @@
 {
   "version": 2,
   "name": "wuxia-rpg",
-  "buildCommand": "npm install",
-  "outputDirectory": ".",
   "builds": [
     {
       "src": "server.js",
       "use": "@vercel/node",
       "config": {
-        "maxLambdaSize": "50mb"
+        "maxLambdaSize": "50mb",
+        "maxDuration": 30,
+        "memory": 1024
       }
     }
   ],
@@ -22,26 +22,12 @@
       "dest": "/server.js"
     },
     {
-      "src": "/public/(.*)",
-      "dest": "/server.js"
-    },
-    {
-      "src": "/(.*\\.(html|css|js|ico|png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot|mp3|ogg|wav))$",
-      "dest": "/server.js"
-    },
-    {
       "src": "/(.*)",
       "dest": "/server.js"
     }
   ],
   "env": {
     "NODE_ENV": "production"
-  },
-  "functions": {
-    "server.js": {
-      "maxDuration": 30,
-      "memory": 1024
-    }
   },
   "headers": [
     {
@@ -54,15 +40,6 @@
         {
           "key": "X-Content-Type-Options",
           "value": "nosniff"
-        }
-      ]
-    },
-    {
-      "source": "/(.*\\.(css|js|png|jpg|gif|svg|woff2|ico))",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "public, max-age=3600, stale-while-revalidate=86400"
         }
       ]
     },
