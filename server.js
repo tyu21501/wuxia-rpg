@@ -101,20 +101,52 @@ if (USE_OLLAMA) {
   };
 }
 
-const DATA_DIR = join(__dirname, 'data');
+// ── Vercel 環境偵測：生產環境用 /tmp（可寫），本地用 data/ ──
+const IS_PROD = process.env.NODE_ENV === 'production';
+const DATA_DIR = IS_PROD ? '/tmp/wuxia-data' : join(__dirname, 'data');
 const STATE_FILE = join(DATA_DIR, 'world-state.json');
 const SAVES_DIR = join(DATA_DIR, 'saves');
 const USERS_DIR = join(DATA_DIR, 'users');
 const LEADERBOARD_FILE = join(DATA_DIR, 'leaderboard.json');
-mkdirSync(SAVES_DIR, { recursive: true });
-mkdirSync(USERS_DIR, { recursive: true });
+
+// ── 安全建立目錄（Vercel /tmp 可寫，但 __dirname 唯讀）──
+try { mkdirSync(DATA_DIR,   { recursive: true }); } catch {}
+try { mkdirSync(SAVES_DIR,  { recursive: true }); } catch {}
+try { mkdirSync(USERS_DIR,  { recursive: true }); } catch {}
+
+// ── KV 環境偵測（Upstash）──
+const USE_KV = !!(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
+
+// ── KV 輔助函式 ──────────────────────────────────────────────
+async function kvGet(key) {
+  try {
+    const r = await fetch(`${process.env.KV_REST_API_URL}/get/${encodeURIComponent(key)}`, {
+      headers: { Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}` }
+    });
+    const d = await r.json();
+    return d.result ? JSON.parse(d.result) : null;
+  } catch { return null; }
+}
+async function kvSet(key, value) {
+  try {
+    await fetch(`${process.env.KV_REST_API_URL}/set/${encodeURIComponent(key)}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(JSON.stringify(value))
+    });
+  } catch (e) { console.error('[KV SET]', e.message); }
+}
 
 const JWT_SECRET = process.env.JWT_SECRET || 'wuxia-secret-key-change-in-prod';
 const JWT_EXPIRY = '7d';
 
-// 啟動時初始化排行榜檔案
-if (!existsSync(LEADERBOARD_FILE)) {
-  writeFileSync(LEADERBOARD_FILE, JSON.stringify({ entries: [] }, null, 2));
+// 啟動時初始化排行榜檔案（本地開發用，KV 環境不需要）
+if (!USE_KV) {
+  try {
+    if (!existsSync(LEADERBOARD_FILE)) {
+      writeFileSync(LEADERBOARD_FILE, JSON.stringify({ entries: [] }, null, 2));
+    }
+  } catch {}
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -441,38 +473,32 @@ function authenticateToken(req, res, next) {
   });
 }
 
-function loadUser(userId) {
+// ── 使用者：KV（生產）或本地 JSON（開發）──
+async function loadUser(userId) {
+  if (USE_KV) return kvGet(`users:${userId}`);
   const path = join(USERS_DIR, `${userId}.json`);
   if (!existsSync(path)) return null;
-  try {
-    return JSON.parse(readFileSync(path, 'utf-8'));
-  } catch {
-    return null;
-  }
+  try { return JSON.parse(readFileSync(path, 'utf-8')); } catch { return null; }
 }
 
-function saveUser(user) {
+async function saveUser(user) {
+  if (USE_KV) return kvSet(`users:${user.id}`, user);
   const path = join(USERS_DIR, `${user.id}.json`);
-  writeFileSync(path, JSON.stringify(user, null, 2), 'utf-8');
+  try { writeFileSync(path, JSON.stringify(user, null, 2), 'utf-8'); } catch {}
 }
 
-function initLeaderboard() {
-  if (!existsSync(LEADERBOARD_FILE)) {
-    writeFileSync(LEADERBOARD_FILE, JSON.stringify({ entries: [] }, null, 2));
-  }
-}
-
-function loadLeaderboard() {
-  initLeaderboard();
+// ── 排行榜：KV（生產）或本地 JSON（開發）──
+async function loadLeaderboard() {
+  if (USE_KV) return (await kvGet('wuxia:leaderboard')) || { entries: [] };
   try {
+    if (!existsSync(LEADERBOARD_FILE)) return { entries: [] };
     return JSON.parse(readFileSync(LEADERBOARD_FILE, 'utf-8'));
-  } catch {
-    return { entries: [] };
-  }
+  } catch { return { entries: [] }; }
 }
 
-function saveLeaderboard(lb) {
-  writeFileSync(LEADERBOARD_FILE, JSON.stringify(lb, null, 2));
+async function saveLeaderboard(lb) {
+  if (USE_KV) return kvSet('wuxia:leaderboard', lb);
+  try { writeFileSync(LEADERBOARD_FILE, JSON.stringify(lb, null, 2)); } catch {}
 }
 
 function loadState() {
@@ -503,17 +529,17 @@ function loadState() {
 }
 function saveState(state) {
   if (state.conversation_history.length > 50) state.conversation_history = state.conversation_history.slice(-50);
-  // 持久化 LOCATIONS 解鎖狀態
   state._location_unlocks = Object.fromEntries(Object.entries(LOCATIONS).map(([k, v]) => [k, v.unlocked]));
-  const tmp = STATE_FILE + '.tmp';
+  // /tmp 可寫（Vercel），__dirname 唯讀；用 try-catch 防止崩潰
   try {
-    // 原子替換：先寫暫存檔再重命名，防止寫入中斷導致 JSON 損壞
+    const tmp = STATE_FILE + '.tmp';
     writeFileSync(tmp, JSON.stringify(state, null, 2), 'utf-8');
     renameSync(tmp, STATE_FILE);
   } catch (e) {
-    console.error('[saveState] 保存失敗，嘗試清理暫存檔:', e.message);
-    try { renameSync(tmp, STATE_FILE); } catch {}
-    throw e;
+    // 原子替換失敗時直接寫入
+    try { writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), 'utf-8'); } catch (e2) {
+      console.error('[saveState] 保存失敗:', e2.message);
+    }
   }
 }
 
@@ -1455,21 +1481,21 @@ app.post('/api/auth/register', async (req, res) => {
     return res.status(400).json({ error: '密碼長度至少 6 字元' });
   }
 
+  // 查找用戶名是否已存在
   let existingUser = null;
   try {
-    if (existsSync(USERS_DIR)) {
+    if (USE_KV) {
+      // KV 模式：用 username 索引直接查
+      const uid = await kvGet(`usernames:${username.toLowerCase()}`);
+      if (uid) existingUser = await loadUser(uid);
+    } else if (existsSync(USERS_DIR)) {
       const files = readdirSync(USERS_DIR);
       for (const f of files) {
-        const u = loadUser(f.replace('.json', ''));
-        if (u && u.username?.toLowerCase() === username.toLowerCase()) {
-          existingUser = u;
-          break;
-        }
+        const u = await loadUser(f.replace('.json', ''));
+        if (u && u.username?.toLowerCase() === username.toLowerCase()) { existingUser = u; break; }
       }
     }
-  } catch (e) {
-    console.error('[register] 目錄讀取錯誤:', e.message);
-  }
+  } catch (e) { console.error('[register] 查找用戶錯誤:', e.message); }
 
   if (existingUser) return res.status(409).json({ error: '用戶名已存在' });
 
@@ -1483,7 +1509,9 @@ app.post('/api/auth/register', async (req, res) => {
     createdAt: new Date().toISOString(),
     saves: [null, null, null]
   };
-  saveUser(user);
+  await saveUser(user);
+  // KV 模式：建立 username → userId 索引
+  if (USE_KV) await kvSet(`usernames:${username.toLowerCase()}`, userId);
   const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: JWT_EXPIRY });
   res.json({ success: true, token, user: { id: user.id, username: user.username, email: user.email } });
 });
@@ -1496,19 +1524,17 @@ app.post('/api/auth/login', async (req, res) => {
 
   let user = null;
   try {
-    if (existsSync(USERS_DIR)) {
+    if (USE_KV) {
+      const uid = await kvGet(`usernames:${username.toLowerCase()}`);
+      if (uid) user = await loadUser(uid);
+    } else if (existsSync(USERS_DIR)) {
       const files = readdirSync(USERS_DIR);
       for (const f of files) {
-        const candidate = loadUser(f.replace('.json', ''));
-        if (candidate && candidate.username?.toLowerCase() === username.toLowerCase()) {
-          user = candidate;
-          break;
-        }
+        const candidate = await loadUser(f.replace('.json', ''));
+        if (candidate && candidate.username?.toLowerCase() === username.toLowerCase()) { user = candidate; break; }
       }
     }
-  } catch (e) {
-    console.error('[login] 目錄讀取錯誤:', e.message);
-  }
+  } catch (e) { console.error('[login] 查找用戶錯誤:', e.message); }
 
   if (!user) return res.status(401).json({ error: '用戶不存在或密碼錯誤' });
   const valid = await bcrypt.compare(password, user.passwordHash);
@@ -1518,35 +1544,30 @@ app.post('/api/auth/login', async (req, res) => {
   res.json({ success: true, token, user: { id: user.id, username: user.username, email: user.email } });
 });
 
-app.get('/api/auth/me', authenticateToken, (req, res) => {
-  const user = loadUser(req.user.id);
+app.get('/api/auth/me', authenticateToken, async (req, res) => {
+  const user = await loadUser(req.user.id);
   if (!user) return res.status(404).json({ error: '用戶不存在' });
   res.json({ user: { id: user.id, username: user.username, email: user.email, createdAt: user.createdAt } });
 });
 
-app.post('/api/auth/save-cloud/:slot', authenticateToken, (req, res) => {
+app.post('/api/auth/save-cloud/:slot', authenticateToken, async (req, res) => {
   const slot = parseInt(req.params.slot);
   if (![1, 2, 3].includes(slot)) return res.status(400).json({ error: '存檔槽必須為 1、2 或 3' });
   const state = loadState();
-  const user = loadUser(req.user.id);
+  const user = await loadUser(req.user.id);
   if (!user) return res.status(404).json({ error: '用戶不存在' });
 
   state.saveName = `${state.player.name} · 第${state.world.day}天`;
   state.saveTime = new Date().toLocaleString('zh-TW');
-  user.saves[slot - 1] = {
-    data: state,
-    name: state.saveName,
-    time: state.saveTime,
-    day: state.world.day
-  };
-  saveUser(user);
+  user.saves[slot - 1] = { data: state, name: state.saveName, time: state.saveTime, day: state.world.day };
+  await saveUser(user);
   res.json({ success: true });
 });
 
-app.post('/api/auth/load-cloud/:slot', authenticateToken, (req, res) => {
+app.post('/api/auth/load-cloud/:slot', authenticateToken, async (req, res) => {
   const slot = parseInt(req.params.slot);
   if (![1, 2, 3].includes(slot)) return res.status(400).json({ error: '存檔槽必須為 1、2 或 3' });
-  const user = loadUser(req.user.id);
+  const user = await loadUser(req.user.id);
   if (!user) return res.status(404).json({ error: '用戶不存在' });
 
   const save = user.saves[slot - 1];
@@ -1569,36 +1590,27 @@ app.post('/api/leaderboard/submit', async (req, res) => {
   if (token) {
     try {
       const decoded = jwt.verify(token, JWT_SECRET);
-      const user = loadUser(decoded.id);
+      const user = await loadUser(decoded.id);
       if (user) username = user.username;
-    } catch {
-      // 忽略令牌錯誤，使用訪客名
-    }
+    } catch {}
   }
 
   const score = (achievements_count * 100) + (quests_completed * 50) + (days_survived * 10) - (anomaly_spread * 2);
-  const lb = loadLeaderboard();
+  const lb = await loadLeaderboard();
   const timestamp = new Date().toISOString();
-  lb.entries.push({
-    username,
-    score,
-    ending_id,
-    days: days_survived,
-    achievements: achievements_count,
-    timestamp
-  });
+  lb.entries.push({ username, score, ending_id, days: days_survived, achievements: achievements_count, timestamp });
   lb.entries.sort((a, b) => b.score - a.score);
   lb.entries = lb.entries.slice(0, 100);
-  saveLeaderboard(lb);
+  await saveLeaderboard(lb);
 
   const rank = lb.entries.findIndex(e => e.timestamp === timestamp) + 1;
   res.json({ success: true, score, rank });
 });
 
-app.get('/api/leaderboard', (req, res) => {
-  const lb = loadLeaderboard();
-  const topEntries = lb.entries.slice(0, 20).map((e, i) => ({ rank: i + 1, ...e }));
-  res.json({ entries: topEntries, total: lb.entries.length });
+app.get('/api/leaderboard', async (req, res) => {
+  const lb = await loadLeaderboard();
+  const topEntries = (lb.entries || []).slice(0, 20).map((e, i) => ({ rank: i + 1, ...e }));
+  res.json({ leaderboard: topEntries, total: (lb.entries || []).length });
 });
 
 app.get('/api/character', (req, res) => {
