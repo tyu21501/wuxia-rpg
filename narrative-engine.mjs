@@ -49,26 +49,42 @@ const LOCATION_ATMOSPHERES = {
   ],
 };
 
-// ── 隨機選取工具 ──────────────────────────────────────────────
-function pick(arr, seed = Math.random()) {
-  return arr[Math.floor(seed * arr.length)];
+// ── 防重複機制：記錄最近使用過的敘事索引 ──────────────────────
+const _recentUsed = new Map(); // key: `${location}:${type}` => Set of indices
+function pickNonRepeat(arr, cacheKey) {
+  if (arr.length === 0) return '';
+  if (arr.length === 1) return arr[0];
+  const used = _recentUsed.get(cacheKey) || new Set();
+  const available = arr.map((_, i) => i).filter(i => !used.has(i));
+  const pool = available.length > 0 ? available : [...arr.keys()]; // reset when all used
+  const idx = pool[Math.floor(Math.random() * pool.length)];
+  const newUsed = new Set([...used, idx]);
+  if (newUsed.size > Math.floor(arr.length * 0.7)) newUsed.clear(); // cycle reset
+  _recentUsed.set(cacheKey, newUsed);
+  return arr[idx];
+}
+function pick(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
 }
 function rnd() { return Math.random(); }
 
-// ── 行動關鍵字分類 ────────────────────────────────────────────
+// ── 行動關鍵字分類（更完整）────────────────────────────────────
 function classifyAction(action) {
-  const a = action.toLowerCase();
-  if (/搜查|搜索|調查|探索|尋找|找|搜|檢查|研究/.test(action)) return 'investigate';
-  if (/攻擊|出手|動手|戰鬥|打|殺|砍|刺|拳|掌|劍/.test(action)) return 'combat';
-  if (/問|詢問|打聽|打探|求問|問話|聊|說話|交談|拜訪|對話/.test(action)) return 'talk';
-  if (/移動|前往|走|去|行|趕往|奔|跑/.test(action)) return 'move';
-  if (/修煉|練功|冥想|打坐|調息|內功|運氣/.test(action)) return 'meditate';
+  if (/搜查|搜索|調查|探索|尋找|找|搜|檢查|研究|查看|觀察|仔細|審視|細看/.test(action)) return 'investigate';
+  if (/攻擊|出手|動手|戰鬥|打|殺|砍|刺|拳|掌|劍|刀|武/.test(action)) return 'combat';
+  if (/問|詢問|打聽|打探|求問|問話|聊|說話|交談|拜訪|對話|告訴|談|訪|請教|商量/.test(action)) return 'talk';
+  if (/移動|前往|走|去|行|趕往|奔|跑|前進|出發|趕到|抵達/.test(action)) return 'move';
+  if (/修煉|練功|冥想|打坐|調息|內功|運氣|靜坐|悟/.test(action)) return 'meditate';
   if (/建造|建設|修築|蓋|築/.test(action)) return 'build';
-  if (/存檔|儲存|記錄/.test(action)) return 'save';
-  if (/休息|睡覺|歇息|入眠|打盹/.test(action)) return 'rest';
-  if (/張貼|告示|廣場|鎮民|蒐集|線索/.test(action)) return 'gather_info';
-  if (/符文|古籍|典籍|卷軸|文字|記錄/.test(action)) return 'read';
-  if (/收容|封印|道法|除邪|淨化|結界/.test(action)) return 'contain';
+  if (/存檔|儲存/.test(action)) return 'save';
+  if (/休息|睡覺|歇息|入眠|打盹|養傷|靜養/.test(action)) return 'rest';
+  if (/告示|廣場|鎮民|蒐集|線索|打聽|消息|情報|詢問鎮|找鎮/.test(action)) return 'gather_info';
+  if (/符文|古籍|典籍|卷軸|文字|記錄|書|讀|看書|閱讀/.test(action)) return 'read';
+  if (/收容|封印|道法|除邪|淨化|結界|鎮壓|布陣|設陣|符咒|井|古井|封/.test(action)) return 'contain';
+  if (/等待|靜觀|觀望|守候|注意|留意|警戒|伏擊/.test(action)) return 'observe';
+  if (/離開|撤退|逃跑|逃走|躲避|隱藏|躲/.test(action)) return 'flee';
+  if (/給|交給|送|贈|施捨|幫助|救/.test(action)) return 'help';
+  // 短語或疑問也視為explore（玩家在自由思考）
   return 'explore';
 }
 
@@ -95,6 +111,25 @@ const LOCATION_NARRATIVES = {
     explore: [
       '夕陽將青石鎮染成了不安的橘紅。你發現鎮子的每口水井邊都擺著乾燥的菊花，據說是驅鬼用的——但這些菊花有一半已經枯黑，彷彿有什麼讓它們加速凋零。',
       '夜幕低垂，燈火稀少的街道顯得格外空曠。遠處有個人影在晃動，你走過去——什麼也沒有，只有地上一個模糊的濕腳印，朝著古井方向延伸。',
+      '街上的貓都消失了。鎮民說貓是三天前開始不見的，沒有人看見牠們離開，沒有人找到屍體。貓是感知邪氣最靈敏的動物——牠們察覺到了什麼，選擇了離開而不是留下。',
+      '你在鎮子東邊的巷子裡發現一面牆，牆上的灰泥以一種近乎完美的規律脫落，形成了一個圓形的空洞。空洞的邊緣整齊得不像自然腐朽，倒像是被誰從裡面頂出來的。',
+      '有個孩子坐在石階上，對著空氣說話。你靠近，聽見他在說名字——很多名字，全都是男人的名字，語氣是在報數。數到「第二十八個」，他停下來，轉頭看你，「你排第二十九。」',
+      '正午時分，全鎮所有的影子同時偏移了幾寸——不多，如果不是你恰好盯著地面，根本不會察覺。影子很快回到正常位置，就好像世界在某個瞬間微微顫動了一下。',
+      '走到鎮中的茶館，裡面的鎮民都停止說話了，以一種不自然的角度保持著說話前的姿勢，維持了大約兩個呼吸那麼長的時間。然後所有人同時繼續，好像什麼都沒發生過。只有你注意到了。',
+    ],
+    observe: [
+      '你找了個隱蔽的角落靜靜守候，觀察鎮子的動態。鎮民的視線時常不自覺地飄向同一個方向——那口古井。沒有人看太久，好像都在刻意迴避。但每隔一段時間，你能看見有人停下脚步，往井的方向站了一下，然後搖搖頭，繼續走。',
+      '你在暗處等待，看著人來人往。一個牧童從街角走過，手裡拿著一個玩具陀螺。陀螺轉得很慢，但沒有停下，也沒有倒——它就這樣轉著，超過了任何陀螺應有的時間。孩子沒有注意到，繼續往前走。',
+    ],
+    contain: [
+      '你在古井邊仔細端詳那些褪色的道符，試著回憶符文的結構。符文殘缺了兩處關鍵筆畫，用手指沿著缺口描了一遍，你能感受到一種輕微的阻力——好像有什麼東西不希望你把它補完整。\n\n《狀態》\n收容聲望:6\n《結束》',
+      '你從懷中取出攜帶的硃砂，對著古井欄杆上的殘缺符文嘗試補全。補到第三筆時，井底傳來一聲很低的震動，像是石頭碰石頭，又像是嘆息。補完後，周圍的空氣稍微暖和了一點。\n\n《狀態》\n收容聲望:8\n異常變化:-2\n《結束》',
+    ],
+    help: [
+      '你停下腳步，協助了一個需要幫助的鎮民。對方連連道謝，眼神裡有一種如釋重負的神情——不只是感謝你的幫助，更像是感謝你還願意跟他們正常說話、正常相處。這個鎮子裡，正常的互動本身已經成了一種奢侈。\n\n《狀態》\n江湖聲望:2\n穩定變化:1\n《結束》',
+    ],
+    flee: [
+      '你悄悄撤出了那個讓你感到不安的區域，在下一個街角停下腳步，讓呼吸平穩下來。你不確定自己是在迴避危險，還是在迴避自己終究要面對的事實。逃跑能解決當下的不適，但那件事還在原地，等著你。',
     ],
     rest: [
       '你在客棧的木板床上輾轉難眠。牆縫間不時傳來細微的敲擊聲——有節律，像是有人在計時。數了二十八下後，聲音消失，窗外月光偏移了一截。\n\n《狀態》\n理智變化:-3\n《結束》',
@@ -547,11 +582,12 @@ export function generateNarrative(action, state) {
 
   let narrative = '';
 
-  // 從地點敘事庫選取
+  // 從地點敘事庫選取（使用防重複機制）
   if (pool) {
     const candidates = pool[actionType] || pool.explore || [];
     if (candidates.length > 0) {
-      narrative = pick(candidates);
+      const cacheKey = `${loc}:${actionType}`;
+      narrative = pickNonRepeat(candidates, cacheKey);
     }
   }
 
@@ -588,18 +624,49 @@ export function generateNpcDialogue(npcId, npc, message, state) {
 
 // ── 通用敘事生成 ──────────────────────────────────────────────
 function generateGenericNarrative(action, loc, spread, sanity, day, time, identityLabel, actionType, facts) {
-  const cleanAction = action.replace(/^【[^】]*】\s*/, '').replace(/^(我|你)/, '');
+  const cleanAction = action.replace(/^【[^】]*】\s*/, '').replace(/^(我|你)/, '').slice(0, 40);
 
-  const atmosHigh = ['空氣凝滯，光線在不應折射的地方折射著。', '遠處傳來一聲低吼，然後是長久的靜默，比先前更深。', '你的影子在沒有光源偏移的情況下動了一下。'];
-  const atmosMid  = ['牆角的陰影比平常更深，像是某種意識正藏在那裡。', '一陣冷風穿堂而過，帶來某種腐敗與寒意混合的氣息。', '你聽見有人低聲叫你的名字，轉身，什麼都沒有。'];
-  const atmosLow  = ['空氣中有淡淡的草木香，偶爾夾雜說不清的腐敗氣息。', '鳥鳴聲突然停止了，然後重新響起，像是唱片被倒帶後重播。', '風吹過，帶來一陣令人不安的冷意。'];
+  // 依行動類型選對應開場語
+  const actionOpeners = {
+    investigate: ['你仔細地', '你低下頭，認真地', '帶著調查者的眼神，你'],
+    talk:        ['你開口問道，', '你找到一個看起來知情的人，', '你壓低聲音，試探性地'],
+    contain:     ['你取出準備好的材料，', '依照所學的方法，你', '你深吸一口氣，開始'],
+    meditate:    ['你盤腿坐下，閉上眼睛，', '你調整呼吸，讓心神沉靜，', '在這片異常的土地上，你嘗試'],
+    rest:        ['你找了個相對安全的角落，', '身心俱疲，你決定', '你靠牆坐下，'],
+    combat:      ['你迅速反應，', '危機瞬間，你的身體先於意識做出反應，', '你拉開架勢，'],
+    observe:     ['你退到暗處，靜靜地', '你沒有採取行動，只是', '你放慢步伐，讓自己融入環境，'],
+    flee:        ['你迅速撤離了', '你選擇了暫時撤退，', '你的直覺告訴你不對，你'],
+    help:        ['你停下腳步，伸出了援手。', '你沒有路過，而是留下來，', '你放下了自己的事，'],
+    gather_info: ['你在鎮民之間周旋，', '你以閒談的方式打聽，', '你努力拼湊著各方說法，'],
+    read:        ['你翻開眼前的文字，', '你仔細辨認那些字跡，', '你把燈湊近，'],
+    explore:     ['你四處走動，', '你沒有特定目標，只是漫步，', '你讓腳步帶著你，'],
+  };
+
+  const openerPool = actionOpeners[actionType] || actionOpeners.explore;
+  const opener = pick(openerPool);
+
+  const atmosHigh = [
+    '動作的中途，你察覺到某種不對——不是危險，是現實本身有什麼地方歪了，像是一幅畫被人在乾透前用手抹了一下。',
+    '空氣凝滯在你周圍，光線以一種不合常理的角度折射。你繼續行動，但你的影子沒有跟上。',
+    '你做了這件事，而那件事也在某個地方，以某種方式，做了你。',
+  ];
+  const atmosMid  = [
+    '風從某個方向吹來，帶著一種說不清楚的腐敗氣息，不是動物，不是植物，更像是某種概念在腐爛。',
+    '牆角有陰影在移動，但光源沒有改變。你告訴自己那是眼睛疲勞，但你知道自己不相信這個解釋。',
+    '你聽見有人很輕地喊了你的名字，轉身，什麼也沒有——只有你剛才站過的地方，地面稍微暖了一點。',
+  ];
+  const atmosLow  = [
+    '這地方的空氣比外面重，你說不出為什麼，只是覺得每一口呼吸都帶著某種額外的重量。',
+    '你注意到這裡的鳥不唱歌。不是靜止，牠們在飛，在覓食，只是沒有聲音，好像聲音在某個地方停住了。',
+    '事情進展得比你預期的還要順利——這讓你反而感到不安，因為在這個地方，太順利的事情往往意味著有什麼你還沒看到的代價。',
+  ];
 
   const atmos = spread >= 50 ? pick(atmosHigh) : spread >= 25 ? pick(atmosMid) : pick(atmosLow);
-  const sanityNote = sanity < 30 ? '\n\n你的理智在邊緣搖晃——現實的輪廓開始模糊不清，熟悉的事物開始顯露陌生的面貌。'
-    : sanity < 60 ? '\n\n恐懼在你心底悄悄蔓延，但你強迫自己保持冷靜。'
+  const sanityNote = sanity < 30
+    ? '\n\n你的思緒開始不受控地飄移——某些記憶的邊緣變得模糊，某些你確定發生過的事情開始讓你懷疑它是否真的存在。'
+    : sanity < 60
+    ? '\n\n你強迫自己集中注意力，但某種隱隱約約的不安始終像一根針，不痛但一直存在。'
     : '';
-
-  const dayNote = day > 7 ? `（第${day}天，異常擴散已達${spread}%）` : '';
 
   let stateBlock = '';
   if (actionType === 'investigate') {
@@ -607,14 +674,20 @@ function generateGenericNarrative(action, loc, spread, sanity, day, time, identi
   } else if (actionType === 'explore' && spread > 30) {
     stateBlock = `\n\n《狀態》\n理智變化:-3\n《結束》`;
   } else if (actionType === 'meditate') {
-    stateBlock = `\n\n《狀態》\n理智變化:5\n《結束》`;
+    stateBlock = `\n\n《狀態》\n理智變化:5\n收容聲望:2\n《結束》`;
   } else if (actionType === 'rest') {
     stateBlock = `\n\n《狀態》\n理智變化:3\n《結束》`;
   } else if (actionType === 'contain') {
     stateBlock = `\n\n《狀態》\n收容聲望:8\n異常變化:-2\n《結束》`;
+  } else if (actionType === 'help') {
+    stateBlock = `\n\n《狀態》\n江湖聲望:2\n穩定變化:1\n《結束》`;
+  } else if (actionType === 'gather_info') {
+    stateBlock = `\n\n《狀態》\n收容聲望:3\n江湖聲望:2\n《結束》`;
+  } else if (actionType === 'talk') {
+    stateBlock = `\n\n《狀態》\n收容聲望:2\n《結束》`;
   }
 
-  return `身為${identityLabel}，你${cleanAction}。\n\n${atmos}${sanityNote}${stateBlock}`;
+  return `${opener}${cleanAction}。\n\n${atmos}${sanityNote}${stateBlock}`;
 }
 
 function generateGenericNpcLine(npc, loc, spread, state) {

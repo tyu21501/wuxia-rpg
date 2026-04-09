@@ -608,7 +608,7 @@ body {
 /* ══════════════════════════════════════════════════════════════
    主區域
    ══════════════════════════════════════════════════════════════ */
-.main-area { display: flex; flex-direction: column; overflow: hidden; background: var(--bg-base); }
+.main-area { display: flex; flex-direction: column; overflow: hidden; background: var(--bg-base); min-height: 0; }
 
 /* ── 分頁欄 ── */
 .tab-bar {
@@ -654,8 +654,8 @@ body {
 }
 
 /* ── 面板 ── */
-.panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-.panel-scroll { flex: 1; overflow-y: auto; padding: var(--space-5); }
+.panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+.panel-scroll { flex: 1; overflow-y: auto; padding: var(--space-5); min-height: 0; }
 .panel-scroll::-webkit-scrollbar { width: 3px; }
 .panel-scroll::-webkit-scrollbar-thumb { background: var(--border-default); border-radius: 1px; }
 
@@ -681,7 +681,7 @@ body {
 /* ══════════════════════════════════════════════════════════════
    敘事面板
    ══════════════════════════════════════════════════════════════ */
-#panel-story { overflow: hidden; }
+#panel-story { overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
 
 .story-output {
   flex: 1;
@@ -691,6 +691,7 @@ body {
   flex-direction: column;
   gap: var(--space-5);
   scroll-behavior: smooth;
+  min-height: 0;
 }
 .story-output::-webkit-scrollbar { width: 3px; }
 .story-output::-webkit-scrollbar-thumb { background: var(--border-default); border-radius: 1px; }
@@ -801,7 +802,15 @@ body {
   color: var(--gold-mid);
   background: rgba(196,154,42,0.06);
 }
-.qa-hint { font-size: 0.72rem; color: var(--crimson-bright); letter-spacing: 0.12rem; padding: var(--space-1) 0; } /* WCAG AA: 4.99:1 */
+.qa-hint {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  letter-spacing: 0.1rem;
+  padding: var(--space-1) 0;
+  opacity: 0.65;
+  width: 100%;
+  flex-shrink: 0;
+}
 
 
 /* ══ 輸入區 ══ */
@@ -1245,6 +1254,7 @@ body {
   .game-layout {
     grid-template-columns: 1fr;
     grid-template-rows: auto 1fr;
+    height: 100dvh; /* dynamic viewport height for mobile browsers */
   }
   .sidebar {
     flex-direction: row;

@@ -274,43 +274,83 @@ function appendEnding(ending) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// 快速行動按鈕（由AI最後段落自動偵測選項）
+// 快速行動靈感（點擊僅填入輸入框，玩家可自由修改後再送出）
 // ══════════════════════════════════════════════════════════════
-const QUICK_ACTIONS = [
-  { label: '探索周圍', action: '仔細探索當前所在地點，尋找線索或異常跡象' },
-  { label: '與人交談', action: '尋找附近可以交談的人，嘗試打聽消息' },
-  { label: '蒐集情報', action: '試圖蒐集關於無名歸人和玄冥關事件的情報' },
-  { label: '休息恢復', action: '找個安全地方休息，恢復精神' },
-  { label: '查看周遭異常', action: '仔細觀察周圍有無異常跡象，記錄所見' },
-  { label: '前往下一地點', action: '準備前往新的地點繼續調查' },
+
+// 依地點動態建構靈感庫
+const LOCATION_ACTIONS = {
+  '青石鎮':   ['詢問客棧掌櫃關於失蹤商人的消息', '在廣場張貼告示，打聽異常線索', '悄悄靠近那口古井，仔細察看', '找說書人柳白問問玄冥關的往事', '在鎮子裡漫步，觀察鎮民的神情'],
+  '玄冥關廢墟':['在廢墟中搜尋守軍留下的日誌或遺物', '在廢墟深處靜坐冥想，感受異常波動', '找到最後完好的哨樓，向四周張望', '清理瓦礫，尋找埋藏的線索'],
+  '枯骨峽谷': ['沿著去路腳印，深入峽谷探查', '辨識骨陣的排列規律，試著找出圖案意義', '在峽谷壁畫旁停留，細細辨讀'],
+  '霧隱山':   ['循著歌聲方向前行，尋找聲音來源', '在霧氣濃厚處觀察霧的流動方向', '登頂靜坐，以內功感知山中異象'],
+  '沉淵寺':   ['拜訪玄真道人，詢問虛空的本質', '在藏經閣翻閱關於異常的典籍', '協助道人補全寺廟各角落的封印符文'],
+  '古道驛站': ['徹底搜索驛站每個房間', '嘗試補全牆上被破壞的隔離符文', '在驛站後院枯井旁尋找藏匿物'],
+  '血染古橋': ['觀察橋面血跡的分布與形狀', '走到橋中央，靜靜感受此地氣場', '嘗試在橋面繪製臨時性的安定符文'],
+  '廢棄軍寨': ['在地窖中搜尋封存的軍報', '翻找軍官宿舍裡遺留的私人日誌', '在練兵場中，感受那種詭異的整齊'],
+  '天機閣遺址':['細讀穹頂星象圖，找出「客星」軌跡', '翻閱虛空潮汐的未完成計算', '在天文臺頂端，以功法感知夜空異常'],
+  '星淵深洞': ['沿洞壁慢行，辨識那些「長出來的」名字', '靠近那扇「門」，感受另一側的氣息', '在洞口盤坐冥想，保持理智的距離'],
+};
+
+// 通用靈感（地點無對應時使用）
+const GENERIC_ACTIONS = [
+  '仔細觀察周圍有無異常跡象', '尋找可以交談的人，打聽消息',
+  '靜下心來，感受此地的氣場', '蒐集更多關於玄冥關事件的線索',
+  '找個隱蔽角落，先觀察再行動',
 ];
 
 function renderQuickActions(state) {
   const container = document.getElementById('quick-actions');
   container.innerHTML = '';
 
-  const actions = [...QUICK_ACTIONS];
-
-  // Context-aware actions based on state
   if (state?.combat_state?.active) {
-    container.innerHTML = '<div class="qa-hint">⚔ 戰鬥中——請使用戰鬥面板</div>';
+    container.innerHTML = '<div class="qa-hint">⚔ 戰鬥進行中——請於戰鬥面板操作</div>';
     return;
   }
-  if (state?.world?.phase === 'final') {
-    actions.unshift({ label: '面對終局', action: '面對眼前的終局，做出最後的決斷' });
-  }
+
+  // 標題提示
+  const hint = document.createElement('div');
+  hint.className = 'qa-hint';
+  hint.textContent = '💡 靈感（點擊填入，可自由修改）';
+  container.appendChild(hint);
+
+  // 動態選取靈感：任務優先 → 地點專屬 → 通用
+  const inspirations = [];
+
+  // 1. 進行中任務（最多 1 條）
   if (state?.quests?.active?.length > 0) {
     const q = state.quests.active[0];
-    actions.unshift({ label: `繼續：${q.title}`, action: `繼續執行任務「${q.title}」：${q.desc}` });
+    inspirations.push({ label: `📜 ${q.title}`, action: `繼續推進任務「${q.title}」` });
   }
 
-  actions.slice(0, 5).forEach(qa => {
+  // 2. 終局特殊
+  if (state?.world?.phase === 'final') {
+    inspirations.push({ label: '⚠ 面對終局', action: '面對眼前的終局，做出最後決斷' });
+  }
+
+  // 3. 地點專屬靈感（隨機取 3 條）
+  const loc = state?.world?.location || '青石鎮';
+  const locPool = LOCATION_ACTIONS[loc] || GENERIC_ACTIONS;
+  const shuffled = [...locPool].sort(() => Math.random() - 0.5);
+  shuffled.slice(0, 3).forEach(action => {
+    inspirations.push({ label: action.slice(0, 12) + (action.length > 12 ? '…' : ''), action });
+  });
+
+  // 4. 低理智時加入特殊選項
+  if (state?.player?.sanity < 40) {
+    inspirations.push({ label: '😵 試著穩定心神', action: '試圖穩定動搖的理智，以冥想調息' });
+  }
+
+  // 渲染按鈕（點擊只填入文字框，不自動送出）
+  inspirations.slice(0, 5).forEach(qa => {
     const btn = document.createElement('button');
     btn.className = 'qa-btn';
+    btn.title = qa.action; // hover 時顯示完整行動描述
     btn.textContent = qa.label;
     btn.addEventListener('click', () => {
       actionInput.value = qa.action;
-      handleSend();
+      actionInput.focus();
+      // 移動游標到末尾
+      actionInput.setSelectionRange(actionInput.value.length, actionInput.value.length);
     });
     container.appendChild(btn);
   });
