@@ -608,6 +608,28 @@ export function generateNarrative(action, state) {
 /**
  * 生成 NPC 對話敘事（優先使用角色專屬對話庫，按信任度分層）
  */
+// 關鍵詞 → innkeeper 話題對照表
+const INNKEEPER_TOPIC_KEYS = [
+  { key: 'lost_merchant',   keywords: ['商人', '馬福田', '失蹤', '枯骨', '凝煞', '貨', '發財', '哪裡去了'] },
+  { key: 'identity_identity', keywords: ['身份', '認識', '名字', '不記得', '自己是誰', '誰', '忘記', '身份認同', '記憶'] },
+  { key: 'official_coverup', keywords: ['官府', '鎮長', '朝廷', '隱瞞', '掩蓋', '調查', '特使', '代表', '封鎖'] },
+  { key: 'avoidance_tips',  keywords: ['艾草', '逃', '危險', '怎麼辦', '對策', '防範', '枯骨峽谷', '進去', '建議', '小心'] },
+  { key: 'supply_network',  keywords: ['供應', '進貨', '馬車', '物資', '暗道', '組織', '貨源', '馬二', '退出'] },
+  { key: 'npc_gossip',      keywords: ['玄真', '道人', '衛霖', '少俠', '鎮上的人', '人物', '背景', '朝廷', '父親'] },
+  { key: 'timeline_details',keywords: ['什麼時候', '何時', '幾年前', '十五', '那晚', '滿月', '守軍', '時間', '之前', '玄冥關事件'] },
+  { key: 'hidden_resources', keywords: ['資源', '驅邪', '符文', '古籍', '幫忙', '需要', '地下', '庫存', '藏了', '什麼東西'] },
+];
+
+// 偵測訊息最可能對應哪個 innkeeper 話題
+function detectInnkeeperTopic(message) {
+  let best = null, bestScore = 0;
+  for (const { key, keywords } of INNKEEPER_TOPIC_KEYS) {
+    const score = keywords.filter(k => message.includes(k)).length;
+    if (score > bestScore) { bestScore = score; best = key; }
+  }
+  return bestScore > 0 ? best : null;
+}
+
 export function generateNpcDialogue(npcId, npc, message, state) {
   const loc    = state.world?.location || '青石鎮';
   const spread = state.world?.anomaly_spread || 0;
@@ -642,6 +664,22 @@ export function generateNpcDialogue(npcId, npc, message, state) {
   if (npcId === 'amnesiac_child' && npcDef) {
     const all = [...(npcDef.main_lines || [])];
     if (all.length) return `【${loc} · 與無憶孩兒交談】\n\n${pickNonRepeat(all, cacheKey)}`;
+  }
+
+  // ── 陳掌櫃（話題式對話，依關鍵詞選主題）──
+  if (npcId === 'innkeeper' && npcDef?.topics) {
+    const topicKey = detectInnkeeperTopic(message || '');
+    const topics = npcDef.topics;
+    if (topicKey && topics[topicKey]?.length) {
+      // 匹配到特定話題
+      return `【${loc} · 與陳掌櫃交談】\n\n${pickNonRepeat(topics[topicKey], cacheKey + ':' + topicKey)}`;
+    }
+    // 未匹配到話題：隨機選一個話題（防重複）
+    const allTopicKeys = Object.keys(topics).filter(k => topics[k].length > 0);
+    if (allTopicKeys.length) {
+      const rndKey = pickNonRepeat(allTopicKeys.map(k => k), cacheKey + ':topic');
+      return `【${loc} · 與陳掌櫃交談】\n\n${pickNonRepeat(topics[rndKey], cacheKey + ':' + rndKey)}`;
+    }
   }
 
   // ── 其他 NPC（lines 陣列）──

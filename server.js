@@ -1257,8 +1257,16 @@ app.post('/api/action', async (req, res) => {
   if (state.ended) return res.json({ message: '遊戲已結束。請開始新遊戲或讀取存檔。', state: getPublicState(state) });
 
   // ── 不明指令攔截：不推進劇情，以旁白智慧回應 ──────────────
-  if (isUnclearAction(action)) {
-    const narrator = UNCLEAR_NARRATIONS[Math.floor(Math.random() * UNCLEAR_NARRATIONS.length)];
+  // 但若當前有活躍 NPC 對話，可能是跟進反應，讓 NPC fallback 處理而非攔截
+  const hasActiveNpc = !!state._current_npc;
+  if (isUnclearAction(action) && !hasActiveNpc) {
+    // 防重複：用 index 追蹤已用過的旁白
+    if (!state._unclear_used) state._unclear_used = [];
+    const available = UNCLEAR_NARRATIONS.map((_, i) => i).filter(i => !state._unclear_used.includes(i));
+    const pool = available.length > 0 ? available : [...UNCLEAR_NARRATIONS.keys()];
+    const idx = pool[Math.floor(Math.random() * pool.length)];
+    if (available.length > 0) { state._unclear_used.push(idx); if (state._unclear_used.length > 3) state._unclear_used.shift(); }
+    const narrator = UNCLEAR_NARRATIONS[idx];
     const hook = state.story.pending_hook ? `\n\n（${state.story.pending_hook}）` : '';
     return res.json({
       message: narrator + hook,
@@ -1391,10 +1399,20 @@ app.post('/api/npc/talk', async (req, res) => {
   // 記錄當前 NPC（供 narrative-engine 的 信任變化 解析使用）
   state._current_npc = npc_id;
 
+  // 擷取最近一次本 NPC 的對話記錄，作為回應上下文
+  const recentNpcHistory = state.conversation_history.slice(-6).filter(m =>
+    m.role === 'assistant' || (m.role === 'user' && m.content.includes(npc.name))
+  );
+  const contextStr = recentNpcHistory.length > 0
+    ? '\n\n【最近對話上下文（用於保持語境連貫）】\n' + recentNpcHistory.map(m => `${m.role === 'user' ? '玩家' : npc.name}：${m.content.slice(0, 80)}`).join('\n')
+    : '';
+
   const npcSystemPrompt = `你是武俠恐怖小說中的角色「${npc.name}」。當前信任度：${npc.trust}，恐懼度：${npc.fear}。
 地點：${npc.location}。角色描述：${npc.description}
 你的性格：${npc.personality || '神秘謹慎'}
-玩家發言：${message || '你好，我有些事情想請教你。'}
+玩家發言：${message || '你好，我有些事情想請教你。'}${contextStr}
+
+【重要】玩家可能是在對你剛才說的話做出反應（如「甚麼？」「真的嗎？」「繼續說」等），此時你必須延續上一個話題繼續對話，而不是從頭開始。
 
 【回應格式要求】
 以角色口吻用純繁體中文說一段話（60至120字，武俠語氣，符合信任/恐懼程度）。

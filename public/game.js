@@ -481,6 +481,7 @@ async function moveToLocation(location) {
   });
   const data = await res.json();
   if (data.success) {
+    lastNpcId = null; // 移動地點時清除 NPC 對話上下文
     updateUI(data.state);
     appendEntry(`你離開了當前地點，前往 ${location}。${data.sanity_lost > 0 ? `（異常氣息消耗理智 -${data.sanity_lost}）` : ''}`, 'system');
     if (data.new_achievements?.length) showAchievements(data.new_achievements);
@@ -832,6 +833,7 @@ document.getElementById('btn-flee').addEventListener('click', () => doCombatActi
 const NPC_NAME_MAP = {
   '無名歸人': 'unnamed_survivor', '歸人': 'unnamed_survivor',
   '陳掌櫃': 'innkeeper', '掌櫃': 'innkeeper', '客棧掌櫃': 'innkeeper',
+  '客棧': 'innkeeper', '悅來客棧': 'innkeeper', '夥計': 'innkeeper', // 客棧相關都找掌櫃
   '鎮長': 'elder', '李老爺': 'elder', '鎮長李老爺': 'elder',
   '衛霖': 'young_warrior', '少俠': 'young_warrior', '少俠衛霖': 'young_warrior',
   '玄真': 'taoist', '道人': 'taoist', '玄真道人': 'taoist',
@@ -844,6 +846,28 @@ const NPC_NAME_MAP = {
 // 關鍵字偵測是否在與某 NPC 交談（問 / 找 / 告訴 / 詢問 + NPC名稱）
 const TALK_VERBS = /問|詢問|拜訪|找|請教|告訴|交談|聊|對話|跟.*說|與.*談|和.*說|向.*問/;
 
+// 對話連貫：記住上一個交談的 NPC
+let lastNpcId = null;
+
+// 反應句偵測：判斷玩家是否在對當前 NPC 的話語做出回應
+const FOLLOW_UP_KEYWORDS = /繼續|接著說|說下去|繼續說|說完|還有|接下來呢|更多|為何如此|怎麼可能|怎麼回事|如此怪異|真的嗎|確定嗎|那是什麼|什麼意思|然後呢|那又如何|為什麼|為何|好奇怪|難以置信|不可能|你說什麼|是真的|繼續追問|追問|再問/;
+
+// 確定是行動意圖的關鍵詞（不應被當做 follow-up）
+const ACTION_INTENT = /走|去|前往|移動|攻|逃|建|調查|探索|搜|察|找|詢問|問|拜訪|打聽|前去|調查|收容|封印|修煉|打坐|休息/;
+
+function isFollowUpReaction(text) {
+  const t = text.trim();
+  // 明確的跟進關鍵詞（優先於行動判斷）
+  if (FOLLOW_UP_KEYWORDS.test(t)) return true;
+  // 如果包含明確行動意圖，不算 follow-up
+  if (ACTION_INTENT.test(t)) return false;
+  // 短句（≤10字）含問號或驚嘆號，且不含行動意圖，視為反應
+  if (t.length <= 10 && /[？?！!]/.test(t)) return true;
+  // 極短（≤4字）純情緒/語氣句
+  if (t.length <= 4 && /^[\u4e00-\u9fa5？?！!。，…]+$/.test(t)) return true;
+  return false;
+}
+
 function detectNpcTarget(text) {
   // 先看是否有「動詞 + NPC名稱」的模式
   for (const [name, id] of Object.entries(NPC_NAME_MAP)) {
@@ -852,7 +876,11 @@ function detectNpcTarget(text) {
   }
   // 如果純粹只打 NPC 名字或「問 NPC」這種短輸入，也算
   for (const [name, id] of Object.entries(NPC_NAME_MAP)) {
-    if (text.startsWith('問' + name) || text === name || text === '找' + name) return id;
+    if (text.startsWith('問' + name) || text === name || text === '找' + name || text.startsWith(name + '，') || text.startsWith(name + '：')) return id;
+  }
+  // 直接包含 NPC 名字（即使沒動詞）也算對話
+  for (const [name, id] of Object.entries(NPC_NAME_MAP)) {
+    if (text.includes(name)) return id;
   }
   return null;
 }
@@ -888,11 +916,17 @@ async function sendAction(action) {
 
   try {
     // 偵測是否在與特定 NPC 交談
-    const npcId = detectNpcTarget(action);
+    let npcId = detectNpcTarget(action);
+
+    // 對話連貫：若無明確 NPC 目標，但玩家在對剛才的對話做反應，繼續與上一個 NPC 交談
+    if (!npcId && lastNpcId && isFollowUpReaction(action)) {
+      npcId = lastNpcId;
+    }
 
     let res, data;
     if (npcId) {
       // 路由到 NPC 對話 API（回應更貼近角色個性）
+      lastNpcId = npcId; // 記住本次 NPC，以便後續反應句繼續對話
       res = await fetch('/api/npc/talk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -903,6 +937,8 @@ async function sendAction(action) {
         appendEntry(`【與${data.npc.name}交談】`, 'system');
       }
     } else {
+      // 一般行動：清除 NPC 對話上下文（除了移動指令，移動後維持地點但清 NPC）
+      lastNpcId = null;
       // 一般行動 API
       res = await fetch('/api/action', {
         method: 'POST',
