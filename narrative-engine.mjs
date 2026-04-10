@@ -606,20 +606,51 @@ export function generateNarrative(action, state) {
 }
 
 /**
- * 生成 NPC 對話敘事
+ * 生成 NPC 對話敘事（優先使用角色專屬對話庫，按信任度分層）
  */
 export function generateNpcDialogue(npcId, npc, message, state) {
   const loc    = state.world?.location || '青石鎮';
   const spread = state.world?.anomaly_spread || 0;
+  const trust  = npc?.trust ?? 0;
   const npcDef = NPC_DIALOGUES[npcId];
+  const cacheKey = `npc:${npcId}`;
 
-  if (npcDef && npcDef.lines.length > 0) {
-    const line = pick(npcDef.lines);
-    return `【${loc} · 與${npc.name}交談】\n\n${line}`;
+  // ── 無名歸人（三層信任度）──
+  if (npcId === 'unnamed_survivor' && npcDef) {
+    const pool = trust >= 50 ? npcDef.trust_high
+               : trust >= 20 ? npcDef.trust_mid
+               : npcDef.trust_low;
+    if (pool?.length) return `【${loc} · 與無名歸人交談】\n\n${pickNonRepeat(pool, cacheKey)}`;
   }
 
-  // 通用 NPC 回應
-  return generateGenericNpcLine(npc, loc, spread, state);
+  // ── 玄真道人（謎語式提示）──
+  if (npcId === 'taoist' && npcDef?.riddles?.length) {
+    const riddle = pickNonRepeat(npcDef.riddles, cacheKey);
+    return `【${loc} · 與玄真道人交談】\n\n${riddle.answer}`;
+  }
+
+  // ── 殘兵張三（碎片式情報，三組各三條）──
+  if (npcId === 'wounded_soldier' && npcDef?.intel_fragments?.length) {
+    const frag = pickNonRepeat(npcDef.intel_fragments, cacheKey + ':group');
+    if (frag?.lines?.length) {
+      const line = pickNonRepeat(frag.lines, cacheKey + ':line');
+      return `【${loc} · 與殘兵張三交談】\n\n${line}`;
+    }
+  }
+
+  // ── 無憶孩兒（主線 + 數字線索）──
+  if (npcId === 'amnesiac_child' && npcDef) {
+    const all = [...(npcDef.main_lines || [])];
+    if (all.length) return `【${loc} · 與無憶孩兒交談】\n\n${pickNonRepeat(all, cacheKey)}`;
+  }
+
+  // ── 其他 NPC（lines 陣列）──
+  if (npcDef?.lines?.length) {
+    return `【${loc} · 與${npc.name}交談】\n\n${pickNonRepeat(npcDef.lines, cacheKey)}`;
+  }
+
+  // ── 通用備用回應 ──
+  return `【${loc} · 與${npc.name}交談】\n\n${generateGenericNpcLine(npc, loc, spread, state)}`;
 }
 
 // ── 通用敘事生成 ──────────────────────────────────────────────
@@ -691,20 +722,44 @@ function generateGenericNarrative(action, loc, spread, sanity, day, time, identi
 }
 
 function generateGenericNpcLine(npc, loc, spread, state) {
-  const name = npc.name;
+  const name  = npc.name;
   const trust = npc.trust || 0;
   const fear  = npc.fear  || 0;
 
+  // 高恐懼：幾乎無法溝通
   if (fear > 60) {
-    return `${name}瑟縮在原地，眼神充滿恐懼，說話斷斷續續：「你……你不應該來這裡……它會注意到你的……」話說到一半，便不再開口，任憑你如何詢問。`;
+    const lines = [
+      `${name}見你走近便向後退了幾步，雙手緊握，語氣顫抖：「你……你問我什麼我都不知道。你最好也假裝不知道。」`,
+      `${name}的眼神在你臉上停了一秒，然後迅速看向別處，嘴唇動了動，什麼也沒說出來。那種沉默，比任何回答都更讓人不安。`,
+    ];
+    return pick(lines);
   }
-  if (trust < 0) {
-    return `${name}警惕地打量著你，語氣冷漠：「我不認識你，也沒有什麼要跟你說的。」說完便轉身離開，留下你獨自站在原地。`;
+
+  // 信任極低：戒備
+  if (trust < -10) {
+    const lines = [
+      `${name}打量你的眼神不善：「你是誰？從哪裡來的？這種時候，外來的人都得說清楚自己的來歷。」說完便不再多言。`,
+      `${name}沒有正眼看你，語氣敷衍：「我很忙，沒空閒聊。你要打聽什麼，去問別人。」`,
+    ];
+    return pick(lines);
   }
+
+  // 信任較高：願意透露
   if (trust > 40) {
-    return `${name}給了你一個審視的眼神，但語氣帶著幾分信任：「你真的想知道？那件事……好，我告訴你。但你要答應我，不管聽到什麼，都不要表現出你知道了。」\n\n《狀態》\n信任變化:5\n收容聲望:3\n《結束》`;
+    const lines = [
+      `${name}左右確認四周無人，壓低聲音：「你真的想知道？那件事……算了，跟你說也無妨。但你得答應我，不管聽到什麼，面上都不能露出來。」\n\n《狀態》\n信任變化:5\n收容聲望:3\n《結束》`,
+      `${name}長嘆一口氣，似乎下了什麼決定：「我一直想找個人說這件事，但不敢說。你……你看起來不一樣。好，我說，你聽。」\n\n《狀態》\n信任變化:8\n收容聲望:5\n《結束》`,
+    ];
+    return pick(lines);
   }
-  return `${name}猶豫了片刻，選擇說了幾句無關緊要的話，迴避了你真正想問的問題。但從他的眼神裡，你確定他知道更多。\n\n《狀態》\n信任變化:2\n《結束》`;
+
+  // 中立：猶豫透露
+  const lines = [
+    `${name}猶豫了一下，說了幾句模稜兩可的話，迴避了你真正想問的核心。但從他說話時的停頓裡，你確定他知道的比說出來的多得多。\n\n《狀態》\n信任變化:2\n《結束》`,
+    `${name}答了你的問題，但只答了一半。另一半，像是被什麼擋住了——不像是不知道，更像是不允許說。\n\n《狀態》\n信任變化:3\n《結束》`,
+    `（${name}看了你許久）「你問這個，是因為你也發現了什麼，對嗎？」他沒有等你回答，只是點了點頭，好像已經得到了他想要的確認。\n\n《狀態》\n信任變化:4\n收容聲望:2\n《結束》`,
+  ];
+  return pick(lines);
 }
 
 function generateContextSuffix(spread, sanity, rep, day) {

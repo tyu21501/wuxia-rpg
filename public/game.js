@@ -827,7 +827,58 @@ document.getElementById('btn-use-item').addEventListener('click', () => doCombat
 document.getElementById('btn-flee').addEventListener('click', () => doCombatAction('flee'));
 
 // ══════════════════════════════════════════════════════════════
-// 傳送行動
+// NPC 名稱偵測：自動路由到 NPC 對話 API
+// ══════════════════════════════════════════════════════════════
+const NPC_NAME_MAP = {
+  '無名歸人': 'unnamed_survivor', '歸人': 'unnamed_survivor',
+  '陳掌櫃': 'innkeeper', '掌櫃': 'innkeeper', '客棧掌櫃': 'innkeeper',
+  '鎮長': 'elder', '李老爺': 'elder', '鎮長李老爺': 'elder',
+  '衛霖': 'young_warrior', '少俠': 'young_warrior', '少俠衛霖': 'young_warrior',
+  '玄真': 'taoist', '道人': 'taoist', '玄真道人': 'taoist',
+  '張三': 'wounded_soldier', '殘兵': 'wounded_soldier', '殘兵張三': 'wounded_soldier',
+  '柳白': 'storyteller', '說書人': 'storyteller', '說書人柳白': 'storyteller',
+  '無憶孩兒': 'amnesiac_child', '孩兒': 'amnesiac_child', '孩子': 'amnesiac_child',
+  '宋懷仁': 'physician', '醫師': 'physician', '流浪醫師': 'physician', '流浪醫師宋懷仁': 'physician',
+};
+
+// 關鍵字偵測是否在與某 NPC 交談（問 / 找 / 告訴 / 詢問 + NPC名稱）
+const TALK_VERBS = /問|詢問|拜訪|找|請教|告訴|交談|聊|對話|跟.*說|與.*談|和.*說|向.*問/;
+
+function detectNpcTarget(text) {
+  // 先看是否有「動詞 + NPC名稱」的模式
+  for (const [name, id] of Object.entries(NPC_NAME_MAP)) {
+    const hasTalkVerb = TALK_VERBS.test(text);
+    if (text.includes(name) && hasTalkVerb) return id;
+  }
+  // 如果純粹只打 NPC 名字或「問 NPC」這種短輸入，也算
+  for (const [name, id] of Object.entries(NPC_NAME_MAP)) {
+    if (text.startsWith('問' + name) || text === name || text === '找' + name) return id;
+  }
+  return null;
+}
+
+// ── 共用 UI 處理函式 ──────────────────────────────────────────
+function handleApiResponse(data) {
+  if (data.error) {
+    appendEntry(`⚠ ${data.error}`, 'system');
+    return;
+  }
+  if (data.triggered_event) appendAnomalyEvent(data.triggered_event);
+  appendEntry(data.message, 'ai');
+  updateUI(data.state);
+  if (data.ending) appendEnding(data.ending);
+  if (data.new_achievements?.length) showAchievements(data.new_achievements);
+  if (data.newly_unlocked?.length)   showUnlockNotices(data.newly_unlocked);
+  if (data.combat_triggered) {
+    appendEntry(`⚠ 遭遇敵人：${data.combat_triggered.enemy}！`, 'system');
+    fetch('/api/combat/state')
+      .then(r => r.json())
+      .then(d => { if (d?.state?.combat_state?.active) showCombatModal(d.state.combat_state, data.state.player); });
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// 傳送行動（智能路由：NPC 對話 / 一般行動）
 // ══════════════════════════════════════════════════════════════
 async function sendAction(action) {
   if (isLoading) return;
@@ -836,29 +887,33 @@ async function sendAction(action) {
   loadingEl.classList.remove('hidden');
 
   try {
-    const res = await fetch('/api/action', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action })
-    });
-    const data = await res.json();
+    // 偵測是否在與特定 NPC 交談
+    const npcId = detectNpcTarget(action);
 
-    if (data.error) {
-      appendEntry(`⚠ ${data.error}`, 'system');
-    } else {
-      if (data.triggered_event) appendAnomalyEvent(data.triggered_event);
-      appendEntry(data.message, 'ai');
-      updateUI(data.state);
-      if (data.ending) appendEnding(data.ending);
-      if (data.new_achievements?.length) showAchievements(data.new_achievements);
-      if (data.newly_unlocked?.length)   showUnlockNotices(data.newly_unlocked);
-      if (data.combat_triggered) {
-        appendEntry(`⚠ 遭遇敵人：${data.combat_triggered.enemy}！`, 'system');
-        const combatRes = await fetch('/api/combat/state');
-        const combatData = await combatRes.json();
-        if (combatData?.state?.combat_state?.active) showCombatModal(combatData.state.combat_state, data.state.player);
+    let res, data;
+    if (npcId) {
+      // 路由到 NPC 對話 API（回應更貼近角色個性）
+      res = await fetch('/api/npc/talk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ npc_id: npcId, message: action })
+      });
+      data = await res.json();
+      if (data.npc) {
+        appendEntry(`【與${data.npc.name}交談】`, 'system');
       }
+    } else {
+      // 一般行動 API
+      res = await fetch('/api/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action })
+      });
+      data = await res.json();
     }
+
+    handleApiResponse(data);
+
   } catch (e) {
     appendEntry('⚠ 連線異常，請稍後再試', 'system');
   } finally {

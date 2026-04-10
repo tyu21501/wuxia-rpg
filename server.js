@@ -60,44 +60,67 @@ function localNarrative(action, state) {
   return generateNarrative(action, state);
 }
 
+// ── Claude 客戶端（不論 Ollama 模式皆備用）──
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
+
+// ── 共用 Claude 呼叫函式 ──
+async function callClaude(systemPrompt, messages) {
+  if (!process.env.ANTHROPIC_API_KEY) throw new Error('未設定 ANTHROPIC_API_KEY');
+  const res = await anthropic.messages.create({
+    model: ANTHROPIC_MODEL, max_tokens: 1200,
+    system: systemPrompt, messages,
+  });
+  return res.content[0].text;
+}
+
 if (USE_OLLAMA) {
   const OLLAMA_BASE = process.env.OLLAMA_BASE_URL || 'http://localhost:11434/v1';
   const ollamaClient = new OpenAI({ apiKey: 'ollama', baseURL: OLLAMA_BASE });
   const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'deepseek-r1:8b';
-  console.log(`[AI] Ollama 模式：${OLLAMA_BASE}  模型：${OLLAMA_MODEL}`);
-  // fallbackFn?: () => string — 若提供則 API 失敗時呼叫，否則用通用 localNarrative
+  console.log(`[AI] 主引擎：Ollama ${OLLAMA_BASE}（${OLLAMA_MODEL}），備用：Claude API`);
+
   callAI = async (systemPrompt, messages, state, fallbackFn) => {
+    // 1️⃣ 嘗試 Ollama
     try {
       const res = await ollamaClient.chat.completions.create({
         model: OLLAMA_MODEL, max_tokens: 1200,
         messages: [{ role: 'system', content: systemPrompt }, ...messages],
       });
       return res.choices[0].message.content;
-    } catch (e) {
-      console.warn('[敘事引擎] Ollama 失敗，切換備用模式:', e.message?.slice(0, 80));
-      if (fallbackFn) return fallbackFn();
-      const lastMsg = messages[messages.length - 1]?.content || '';
-      return localNarrative(lastMsg, state || {});
+    } catch (ollamaErr) {
+      console.warn('[AI] Ollama 失敗，嘗試 Claude API:', ollamaErr.message?.slice(0, 60));
     }
+
+    // 2️⃣ Ollama 失敗 → 嘗試 Claude API
+    try {
+      const text = await callClaude(systemPrompt, messages);
+      console.log('[AI] 已切換 Claude API 回應');
+      return text;
+    } catch (claudeErr) {
+      console.warn('[AI] Claude 失敗，切換本地引擎:', claudeErr.message?.slice(0, 60));
+    }
+
+    // 3️⃣ 兩者皆失敗 → 本地敘事引擎
+    if (fallbackFn) return fallbackFn();
+    const lastMsg = messages[messages.length - 1]?.content || '';
+    return localNarrative(lastMsg, state || {});
   };
 } else {
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
-  // fallbackFn?: () => string — 若提供則 API 失敗時呼叫，否則用通用 localNarrative
+  console.log(`[AI] 主引擎：Claude API（${ANTHROPIC_MODEL}）`);
+
   callAI = async (systemPrompt, messages, state, fallbackFn) => {
+    // 1️⃣ 嘗試 Claude API
     try {
-      const res = await anthropic.messages.create({
-        model: ANTHROPIC_MODEL, max_tokens: 1200,
-        system: systemPrompt, messages,
-      });
-      return res.content[0].text;
+      return await callClaude(systemPrompt, messages);
     } catch (e) {
-      // API 失敗（餘額不足、網路錯誤、未設 key 等）→ 自動切換備用敘事
-      console.warn('[敘事引擎] API 失敗，切換本地備用模式:', e.message?.slice(0, 80));
-      if (fallbackFn) return fallbackFn();
-      const lastMsg = messages[messages.length - 1]?.content || '';
-      return localNarrative(lastMsg, state || {});
+      console.warn('[AI] Claude 失敗，切換本地引擎:', e.message?.slice(0, 60));
     }
+
+    // 2️⃣ Claude 失敗 → 本地引擎
+    if (fallbackFn) return fallbackFn();
+    const lastMsg = messages[messages.length - 1]?.content || '';
+    return localNarrative(lastMsg, state || {});
   };
 }
 
@@ -455,7 +478,13 @@ function getDefaultState() {
     achievements: [],
     conversation_history: [],
     turn: 0, started: false,
-    ended: false, ending_id: null
+    ended: false, ending_id: null,
+    // ── 主線劇情追蹤 ──────────────────────────────────────────
+    story: {
+      chapter: 1,        // 1=序章 2=調查 3=危機 4=終局
+      beats: [],         // 已觸發的關鍵劇情節點 ID
+      pending_hook: null // 下一個應引導玩家前往的鉤子（可為 null）
+    }
   };
 }
 
@@ -544,6 +573,99 @@ function saveState(state) {
 }
 
 // ══════════════════════════════════════════════════════════════
+// 主線劇情節點定義（用於 AI 連貫性提示）
+// ══════════════════════════════════════════════════════════════
+const STORY_BEAT_DEFS = {
+  // 第一章：序章（初抵青石鎮）
+  arrived_town:       { chapter: 1, label: '抵達青石鎮，感受到不安的氣氛' },
+  heard_about_merchant:{ chapter: 1, label: '得知商人馬福田失蹤事件' },
+  first_anomaly_seen: { chapter: 1, label: '親眼目睹第一個異常現象（影子偏移/井水變色等）' },
+  met_innkeeper:      { chapter: 1, label: '與陳掌櫃初步交談' },
+  met_unnamed:        { chapter: 1, label: '與無名歸人有過接觸' },
+  well_discovered:    { chapter: 1, label: '調查過古井，發現符文殘缺' },
+  // 第二章：調查展開
+  visited_ruins:      { chapter: 2, label: '前往玄冥關廢墟調查' },
+  found_journal:      { chapter: 2, label: '找到守軍日誌殘片' },
+  taoist_met:         { chapter: 2, label: '與玄真道人在沉淵寺建立聯繫' },
+  learned_void_theory:{ chapter: 2, label: '了解虛空理論的基礎概念' },
+  soldier_fragment:   { chapter: 2, label: '從殘兵張三處獲得情報碎片' },
+  identity_forming:   { chapter: 2, label: '開始形成某一身份傾向（聲望≥15）' },
+  // 第三章：危機深化
+  anomaly_spread_mid: { chapter: 3, label: '異常擴散超過40%，鎮民開始集體受影響' },
+  door_discovered:    { chapter: 3, label: '發現星淵深洞的「門」' },
+  identity_confirmed: { chapter: 3, label: '確立玩家身份路線' },
+  // 第四章：終局
+  final_confrontation:{ chapter: 4, label: '面對終局選擇' },
+};
+
+// 根據當前狀態自動推進章節
+function updateStoryChapter(state) {
+  if (!state.story) state.story = { chapter: 1, beats: [], pending_hook: null };
+  const beats = state.story.beats;
+  const w = state.world; const p = state.player;
+
+  // 自動記錄已達成的節點
+  if (w.day >= 1 && !beats.includes('arrived_town')) beats.push('arrived_town');
+  if (w.known_facts.some(f => f.includes('商人') || f.includes('馬福田')) && !beats.includes('heard_about_merchant')) beats.push('heard_about_merchant');
+  if ((p.reputation.jianghu + p.reputation.containment + p.reputation.anomaly) >= 5 && !beats.includes('first_anomaly_seen')) beats.push('first_anomaly_seen');
+  if (state.npcs.innkeeper?.trust > 20 && !beats.includes('met_innkeeper')) beats.push('met_innkeeper');
+  if (state.npcs.unnamed_survivor?.trust > 0 && !beats.includes('met_unnamed')) beats.push('met_unnamed');
+  if (w.known_facts.some(f => f.includes('井') || f.includes('符文')) && !beats.includes('well_discovered')) beats.push('well_discovered');
+  if (w.events.some(e => e.includes('玄冥關')) && !beats.includes('visited_ruins')) beats.push('visited_ruins');
+  if (w.known_facts.some(f => f.includes('日誌') || f.includes('守軍')) && !beats.includes('found_journal')) beats.push('found_journal');
+  if (state.npcs.taoist?.trust > 5 && !beats.includes('taoist_met')) beats.push('taoist_met');
+  if (w.known_facts.some(f => f.includes('虛空')) && !beats.includes('learned_void_theory')) beats.push('learned_void_theory');
+  if (state.npcs.wounded_soldier?.trust > 0 && !beats.includes('soldier_fragment')) beats.push('soldier_fragment');
+  if (Math.max(p.reputation.jianghu, p.reputation.containment, p.reputation.anomaly) >= 15 && !beats.includes('identity_forming')) beats.push('identity_forming');
+  if (w.anomaly_spread >= 40 && !beats.includes('anomaly_spread_mid')) beats.push('anomaly_spread_mid');
+  if (w.known_facts.some(f => f.includes('星淵') || f.includes('門')) && !beats.includes('door_discovered')) beats.push('door_discovered');
+  if (p.identity !== 'none' && !beats.includes('identity_confirmed')) beats.push('identity_confirmed');
+
+  // 更新章節
+  const ch1Done = ['arrived_town','heard_about_merchant','first_anomaly_seen','met_innkeeper'].every(b => beats.includes(b));
+  const ch2Done = ['visited_ruins','taoist_met','identity_forming'].every(b => beats.includes(b));
+  const ch3Done = beats.includes('identity_confirmed') && w.anomaly_spread >= 50;
+  if (ch3Done && w.anomaly_spread >= 70) state.story.chapter = 4;
+  else if (ch3Done) state.story.chapter = 3;
+  else if (ch2Done) state.story.chapter = 2;
+  else if (ch1Done) state.story.chapter = 2;
+  else state.story.chapter = 1;
+
+  // 設定下一個引導鉤子（pending_hook）
+  if (!beats.includes('heard_about_merchant')) state.story.pending_hook = '去悅來客棧問問陳掌櫃關於失蹤商人的事';
+  else if (!beats.includes('met_unnamed')) state.story.pending_hook = '鎮子裡有個奇怪的男人，無人認識他，或許值得去接觸他';
+  else if (!beats.includes('well_discovered')) state.story.pending_hook = '鎮中心那口古井一直散發著不安的氣息';
+  else if (!beats.includes('visited_ruins')) state.story.pending_hook = '玄冥關廢墟可能藏有解開真相的線索';
+  else if (!beats.includes('taoist_met')) state.story.pending_hook = '沉淵寺的玄真道人似乎了解這一切的來龍去脈';
+  else if (!beats.includes('identity_forming')) state.story.pending_hook = '是時候決定你探索這一切的方式和立場了';
+  else state.story.pending_hook = null;
+}
+
+// ══════════════════════════════════════════════════════════════
+// 不明指令偵測（防止瑣碎輸入觸發劇情）
+// ══════════════════════════════════════════════════════════════
+function isUnclearAction(action) {
+  const t = action.trim();
+  if (t.length < 2) return true;
+  // 純感嘆詞/語氣詞/單字
+  if (/^(甚麼|什麼|為何|然後|繼續|下一步|接下來|好的|嗯|啊|哦|喔|吧|呢|了|嗎|哈|對|是|不|可以|行|好|壞|去|走|看|做|說|問|找)[？?！!。…]*$/.test(t)) return true;
+  // 單個漢字或短到完全無法判斷意圖
+  if (t.length <= 2 && /^[\u4e00-\u9fa5]{1,2}$/.test(t)) return true;
+  // 純英文 1-4 字母（不像指令）
+  if (/^[a-zA-Z]{1,4}$/.test(t)) return true;
+  return false;
+}
+
+// 不明指令的智慧旁白回應庫
+const UNCLEAR_NARRATIONS = [
+  '（旁白）時間在青石鎮流動得有些沉重。你站在原地，思緒一時散了——周圍的空氣繼續保持著那種詭異的靜默，等待著你做出什麼具體的決定。',
+  '（旁白）你的念頭來了又去，像是被什麼干擾了。這個地方會讓人分心，但分心在這裡很危險。你想做什麼？往哪個方向走？找誰說話？還是調查什麼？',
+  '（旁白）附近的鎮民各自忙著自己的事，沒有人注意到你的遲疑。時間繼續走。如果你有什麼想做的，現在是個好時機。',
+  '（旁白）你環顧四周，沒有採取任何行動。街道上的影子拉長了一截——時間正在過去。這個鎮子的異常不會等人。你打算怎麼做？',
+  '（陳掌櫃從客棧探出頭來，見你只是站著，搖了搖頭，沒說什麼。）你自己也清楚，只是站著發呆解決不了任何問題。',
+];
+
+// ══════════════════════════════════════════════════════════════
 // 系統提示詞
 // ══════════════════════════════════════════════════════════════
 function buildSystemPrompt(state) {
@@ -595,6 +717,18 @@ ${facts}
 【最近的敘事片段（不要重複這些內容）】
   ${recentAI || '（尚無）'}
 
+【主線劇情章節（第 ${state.story?.chapter || 1} 章 / 共4章）】
+當前已確立的劇情節點：${
+  (state.story?.beats || []).map(b => STORY_BEAT_DEFS[b]?.label || b).join('、') || '（序章起點，尚未建立）'
+}
+${state.story?.pending_hook ? `當前故事鉤子（下一個自然推進方向）：${state.story.pending_hook}` : '主線進展良好，跟隨玩家行動自然推進'}
+
+【劇情連貫性規則——嚴格遵守】
+❶ 主線只往前走，不倒退。已發生的事不重述，未發生的節點不跳躍。
+❷ 若玩家行動與當前章節合理，讓情節自然推進；若行動跳躍過大（例如序章就直接面對終局），旁白智慧地收束，讓情節保持章節邏輯。
+❸ 禁止無中生有：不能憑空出現玩家從未調查過的人物或線索。新事實必須是玩家此次行動所觸發的直接結果。
+❹ NPC的態度要記憶——不能剛與玩家建立信任的 NPC，下次就變成陌生人；不能沒有任何鋪墊就突然透露核心機密。
+
 【核心寫作原則】
 ❶ 直接回應玩家的行動。玩家做什麼，世界就對應地發生什麼。每次回應必須讓情節真正推進，而非重述場景。
 ❷ 字數靈活：簡短行動（問話、移動）100-180字即可；重要場景或事件探索可到 350字。不要為了字數填充無意義的大氣渲染。
@@ -603,7 +737,7 @@ ${facts}
 ❺ 江湖人物永遠用武學/鬼神框架誤解異常，但這種誤解要有說服力、有時甚至讓人半信半疑。
 ❻ 可以自由使用對話、動作、環境、心理等敘事手法混合，不必每次都是純景物描寫。
 ❼ 全文繁體中文，風格凝練，帶古龍式留白與克蘇魯式宇宙恐懼感。
-❽ 重要：對話應真實反映NPC個性，而非公式化的「鎮民說：…」。讓每個角色有獨特聲音。
+❽ 對話應真實反映NPC個性，每個角色有獨特聲音，不說同質化的「旅人，你好」之類公式語。
 
 【NPC個性速查】
 無名歸人——茫然、疏離、偶爾說出讓人不寒而慄的話；陳掌櫃——市儈、多話、隱瞞甚多；
@@ -1119,7 +1253,19 @@ app.post('/api/action', async (req, res) => {
   if (!action?.trim()) return res.status(400).json({ error: '行動不能為空' });
 
   const state = loadState();
+  if (!state.story) state.story = { chapter: 1, beats: [], pending_hook: null };
   if (state.ended) return res.json({ message: '遊戲已結束。請開始新遊戲或讀取存檔。', state: getPublicState(state) });
+
+  // ── 不明指令攔截：不推進劇情，以旁白智慧回應 ──────────────
+  if (isUnclearAction(action)) {
+    const narrator = UNCLEAR_NARRATIONS[Math.floor(Math.random() * UNCLEAR_NARRATIONS.length)];
+    const hook = state.story.pending_hook ? `\n\n（${state.story.pending_hook}）` : '';
+    return res.json({
+      message: narrator + hook,
+      state: getPublicState(state),
+      triggered_event: null, new_achievements: [], newly_unlocked: [], combat_triggered: null
+    });
+  }
 
   state.conversation_history.push({ role: 'user', content: action });
 
@@ -1133,6 +1279,9 @@ app.post('/api/action', async (req, res) => {
       state: getPublicState(state), ending: true
     });
   }
+
+  // ── 每次行動前更新劇情章節 ──────────────────────────────────
+  updateStoryChapter(state);
 
   try {
     const raw = await callAI(buildSystemPrompt(state), state.conversation_history.slice(-24), state);
@@ -1151,6 +1300,9 @@ app.post('/api/action', async (req, res) => {
       // 本地引擎回應：直接使用 parseAndApplyStateBlock
       clean = parseAndApplyStateBlock(raw, state);
     }
+
+    // 回應後再更新一次節點（行動可能觸發新節點）
+    updateStoryChapter(state);
 
     state.turn++;
     const { event: triggeredEvent, unlocked: newlyUnlocked } = tickWorld(state);
